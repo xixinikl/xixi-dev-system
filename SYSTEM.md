@@ -27,6 +27,13 @@ dependencies or display surfaces, not separate commands the user must remember.
 daily GitHub Actions workflow. The workflow writes only an Actions summary and
 90-day artifact; it never checks out a collaboration branch for execution.
 
+## Acceptance Gate
+
+Projects declare `quality.acceptanceCommand` and optionally a low-risk autofix
+command. The system runs the command only in the checked-out worktree. Auto-fix
+is prohibited whenever the update ledger has high-risk paths; otherwise it must
+rerun the acceptance command and records its evidence in the report.
+
 ## Isolated Python
 
 Python projects use `uv` to download the adapter's exact Python version and

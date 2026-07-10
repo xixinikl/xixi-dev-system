@@ -323,6 +323,48 @@ def weekly_review(args: argparse.Namespace) -> None:
     print(output.with_suffix(".md"))
 
 
+def acceptance(args: argparse.Namespace) -> None:
+    root = project(args.project)
+    config = load(root)
+    date = args.date
+    updates(argparse.Namespace(project=str(root), date=date))
+    ledger = json.loads((root / ".xds" / "reports" / "updates" / f"{date}.json").read_text(encoding="utf-8"))
+    risk_files = sorted({path for item in ledger.get("commits", []) for path in item.get("riskFiles", [])})
+    quality = config.get("quality", {})
+    command = quality.get("acceptanceCommand", "").replace("{date}", date)
+    if not command:
+        die("missing quality.acceptanceCommand")
+    result = subprocess.run(command, shell=True, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    autofix = {"attempted": False, "kept": False}
+    fix_command = quality.get("lowRiskAutofixCommand", "").replace("{date}", date)
+    if result.returncode and fix_command and not risk_files:
+        fix = subprocess.run(fix_command, shell=True, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        verify = subprocess.run(command, shell=True, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        autofix = {"attempted": True, "kept": fix.returncode == 0 and verify.returncode == 0, "fixExitCode": fix.returncode, "verifyExitCode": verify.returncode, "outputTail": (fix.stdout or "")[-4000:]}
+        if autofix["kept"]:
+            result = verify
+    status = "pass" if result.returncode == 0 and not risk_files else "conditional" if result.returncode == 0 else "fail"
+    payload = {"schemaVersion": 1, "date": date, "verdict": status, "updates": ledger["commitCount"], "riskFiles": risk_files, "checkExitCode": result.returncode, "checkOutputTail": (result.stdout or "")[-4000:], "autofix": autofix}
+    output = root / ".xds" / "reports" / "acceptance" / date
+    write_json(output.with_suffix(".json"), payload)
+    text = f"""# Acceptance report - {date}
+
+- Verdict: `{status}`
+- Collaboration updates: {ledger['commitCount']}
+- High-risk changed paths: {', '.join(risk_files) or 'none'}
+- Check exit: {result.returncode}
+- Low-risk autofix attempted: {autofix['attempted']}
+- Low-risk autofix kept: {autofix['kept']}
+
+## Scope boundary
+
+The configured acceptance command ran only in this checked-out worktree. Remote collaboration branches were collected as facts and were not executed.
+"""
+    output.with_suffix(".md").write_text(text, encoding="utf-8")
+    print(output.with_suffix(".md"))
+    raise SystemExit(0 if status in ("pass", "conditional") else result.returncode or 1)
+
+
 def preview_start(args: argparse.Namespace) -> None:
     root = project(args.project)
     config = load(root)
@@ -390,6 +432,7 @@ def main() -> None:
     automation_parser = sub.add_parser("automation"); automation_sub = automation_parser.add_subparsers(required=True)
     install_parser = automation_sub.add_parser("install"); install_parser.add_argument("--project", required=True); install_parser.add_argument("--force", action="store_true"); install_parser.set_defaults(func=automation_install)
     review_parser = sub.add_parser("weekly-review"); review_parser.add_argument("--project", required=True); review_parser.add_argument("--date", default=dt.date.today().isoformat()); review_parser.set_defaults(func=weekly_review)
+    acceptance_parser = sub.add_parser("acceptance"); acceptance_parser.add_argument("--project", required=True); acceptance_parser.add_argument("--date", default=dt.date.today().isoformat()); acceptance_parser.set_defaults(func=acceptance)
     preview_parser = sub.add_parser("preview"); preview_sub = preview_parser.add_subparsers(required=True)
     start_parser = preview_sub.add_parser("start"); start_parser.add_argument("--project", required=True); start_parser.add_argument("--name"); start_parser.add_argument("--command"); start_parser.add_argument("--data-namespace"); start_parser.set_defaults(func=preview_start)
     stop_parser = preview_sub.add_parser("stop"); stop_parser.add_argument("--project", required=True); stop_parser.add_argument("--name"); stop_parser.set_defaults(func=preview_stop)
