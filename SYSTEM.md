@@ -22,3 +22,10 @@ dependencies or display surfaces, not separate commands the user must remember.
    data namespace, then stores the PID and URL in `.xds/runtime/`.
 3. Daily reports are observations. Weekly review promotes only repeated or
    high-impact, evidenced rules into shared learning.
+
+## Isolated Python
+
+Python projects use `uv` to download the adapter's exact Python version and
+create `.xds/venvs/<name>/`. `runtime prepare` installs dependencies into that
+environment only. Preview refuses to fall back to system Python. A project can
+use `{python}` in `runtime.startCommand`; it resolves to the managed interpreter.

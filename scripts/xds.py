@@ -8,6 +8,8 @@ import datetime as dt
 import json
 import os
 import re
+import shlex
+import shutil
 import signal
 import socket
 import subprocess
@@ -50,6 +52,15 @@ def write_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def runtime_python(root: Path, config: dict, name: str) -> Path:
+    suffix = "Scripts/python.exe" if os.name == "nt" else "bin/python"
+    return root / ".xds" / "venvs" / name / suffix
+
+
+def expand(value: str, *, python: Path, namespace: str) -> str:
+    return value.replace("{python}", shlex.quote(str(python))).replace("{namespace}", namespace)
+
+
 def onboard(args: argparse.Namespace) -> None:
     root = project(args.project)
     target = root / CONFIG
@@ -67,6 +78,8 @@ def onboard(args: argparse.Namespace) -> None:
             "doctorCommand": args.doctor_command,
             "portEnvironment": "PORT",
             "dataNamespaceEnvironment": "XDS_DATA_NAMESPACE",
+            "workingDirectory": ".",
+            "requirements": [],
         },
         "collaboration": {
             "focusAuthors": args.focus_author,
@@ -91,7 +104,7 @@ def doctor(args: argparse.Namespace) -> None:
     needed = ["schemaVersion", "projectName", "repository", "defaultBranch"]
     runtime = config.get("runtime", {})
     missing = [key for key in needed if not config.get(key)]
-    missing.extend(f"runtime.{key}" for key in ("manager", "startCommand", "doctorCommand") if not runtime.get(key))
+    missing.extend(f"runtime.{key}" for key in ("manager", "startCommand", "doctorCommand", "workingDirectory") if not runtime.get(key))
     git_ok = run_git(root, "rev-parse", "--is-inside-work-tree", check=False) == "true"
     reports_ok = (root / ".xds" / "reports" / "updates").is_dir()
     print(f"project: {config.get('projectName', 'unknown')}")
@@ -156,6 +169,26 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def runtime_prepare(args: argparse.Namespace) -> None:
+    root = project(args.project)
+    config = load(root)
+    runtime = config["runtime"]
+    if runtime.get("manager") != "uv":
+        die("only the uv managed runtime is supported for isolated previews")
+    if not shutil.which("uv"):
+        die("uv is required; install it first with the documented user-level installer")
+    name = args.name or "default"
+    python = runtime_python(root, config, name)
+    venv = python.parent.parent
+    subprocess.run(["uv", "venv", "--python", str(runtime["python"]), str(venv)], cwd=root, check=True)
+    for requirement in runtime.get("requirements", []):
+        requirement_path = root / requirement
+        if not requirement_path.is_file():
+            die(f"missing requirements file: {requirement_path}")
+        subprocess.run(["uv", "pip", "install", "--python", str(python), "-r", str(requirement_path)], cwd=root, check=True)
+    print(python)
+
+
 def workspace_create(args: argparse.Namespace) -> None:
     root = project(args.project)
     safe = re.sub(r"[^A-Za-z0-9._-]+", "-", args.branch).strip("-")
@@ -179,12 +212,24 @@ def preview_start(args: argparse.Namespace) -> None:
         die("missing runtime.startCommand")
     port = free_port()
     namespace = args.data_namespace or f"xds-{config['projectName'].lower().replace(' ', '-')}-{name}"
+    python = runtime_python(root, config, name)
+    if not args.command and not python.is_file():
+        die(f"isolated runtime is not prepared: {python}; run runtime prepare first")
+    command = expand(command, python=python, namespace=namespace)
     env = os.environ.copy()
     env[config["runtime"].get("portEnvironment", "PORT")] = str(port)
     env[config["runtime"].get("dataNamespaceEnvironment", "XDS_DATA_NAMESPACE")] = namespace
+    for key, value in config.get("data", {}).get("environment", {}).items():
+        path_value = expand(value, python=python, namespace=namespace)
+        data_path = Path(path_value)
+        if not data_path.is_absolute():
+            data_path = root / data_path
+        data_path.parent.mkdir(parents=True, exist_ok=True)
+        env[key] = str(data_path)
     log_path = root / ".xds" / "runtime" / f"{name}.log"
     with log_path.open("w", encoding="utf-8") as log:
-        process = subprocess.Popen(command, shell=True, cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        cwd = root / config["runtime"].get("workingDirectory", ".")
+        process = subprocess.Popen(command, shell=True, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     state = {"pid": process.pid, "url": f"http://127.0.0.1:{port}", "port": port, "dataNamespace": namespace, "command": command, "log": str(log_path)}
     write_json(state_path, state)
     print(json.dumps(state, ensure_ascii=False, indent=2))
@@ -215,6 +260,8 @@ def main() -> None:
     onboard_parser.set_defaults(func=onboard)
     doctor_parser = sub.add_parser("doctor"); doctor_parser.add_argument("--project", required=True); doctor_parser.set_defaults(func=doctor)
     updates_parser = sub.add_parser("updates"); updates_parser.add_argument("--project", required=True); updates_parser.add_argument("--date", default=dt.date.today().isoformat()); updates_parser.set_defaults(func=updates)
+    runtime_parser = sub.add_parser("runtime"); runtime_sub = runtime_parser.add_subparsers(required=True)
+    prepare_parser = runtime_sub.add_parser("prepare"); prepare_parser.add_argument("--project", required=True); prepare_parser.add_argument("--name"); prepare_parser.set_defaults(func=runtime_prepare)
     workspace_parser = sub.add_parser("workspace"); workspace_sub = workspace_parser.add_subparsers(required=True)
     create_parser = workspace_sub.add_parser("create"); create_parser.add_argument("--project", required=True); create_parser.add_argument("--branch", required=True); create_parser.add_argument("--base", default="origin/main"); create_parser.set_defaults(func=workspace_create)
     preview_parser = sub.add_parser("preview"); preview_sub = preview_parser.add_subparsers(required=True)
