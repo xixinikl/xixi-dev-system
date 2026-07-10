@@ -91,6 +91,8 @@ def onboard(args: argparse.Namespace) -> None:
         path.mkdir(parents=True, exist_ok=True)
     if run_git(root, "rev-parse", "--is-inside-work-tree", check=False) == "true":
         exclude_path = Path(run_git(root, "rev-parse", "--git-path", "info/exclude"))
+        if not exclude_path.is_absolute():
+            exclude_path = root / exclude_path
         exclude_path.parent.mkdir(parents=True, exist_ok=True)
         existing = exclude_path.read_text(encoding="utf-8") if exclude_path.exists() else ""
         if ".xds/" not in existing.splitlines():
