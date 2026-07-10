@@ -87,6 +87,10 @@ def onboard(args: argparse.Namespace) -> None:
             "focusAuthors": args.focus_author,
             "riskPathPatterns": args.risk_path,
         },
+        "learning": {
+            "projectRetrospectiveDirectory": "doc/retrospectives",
+            "sharedProfileRepository": "https://github.com/xixinikl/xixi-agent-profile",
+        },
     }
     write_json(target, config)
     for path in (root / ".xds" / "reports" / "updates", root / ".xds" / "runtime"):
@@ -402,6 +406,60 @@ The configured acceptance command ran only in this checked-out worktree. Remote 
     raise SystemExit(0 if status in ("pass", "conditional") else result.returncode or 1)
 
 
+def learning_candidate(args: argparse.Namespace) -> None:
+    root = project(args.project)
+    config = load(root)
+    report_path = root / ".xds" / "reports" / "acceptance" / f"{args.date}.json"
+    if not report_path.exists():
+        die(f"missing acceptance evidence: {report_path}")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    worth_review = report["verdict"] != "pass" or report.get("autofix", {}).get("attempted")
+    if not worth_review:
+        print("No learning candidate: pass with no autofix.")
+        return
+    directory = root / config.get("learning", {}).get("projectRetrospectiveDirectory", "doc/retrospectives")
+    directory.mkdir(parents=True, exist_ok=True)
+    candidate = directory / f"{args.date}-xds-learning-candidate.md"
+    if candidate.exists() and not args.force:
+        die(f"candidate exists: {candidate}")
+    text = f"""# {args.date} XDS learning candidate
+
+- Source evidence: `.xds/reports/acceptance/{args.date}.json`
+- Verdict: `{report['verdict']}`
+- High-risk paths: {', '.join(report.get('riskFiles', [])) or 'none'}
+- Low-risk autofix attempted: {report.get('autofix', {}).get('attempted', False)}
+- Promotion status: pending weekly review
+
+## Verified facts
+
+- The acceptance report and update ledger are the only evidence source for this candidate.
+
+## Prevention action
+
+- Add a concrete test, check, or project rule only after weekly review confirms the root cause.
+
+## Shared-learning decision
+
+- Do not promote a one-off event. Promote only repeated or high-impact rules with an executable prevention action.
+"""
+    candidate.write_text(text, encoding="utf-8")
+    print(candidate)
+
+
+def learning_promote(args: argparse.Namespace) -> None:
+    candidate = Path(args.candidate).expanduser().resolve()
+    profile = Path(args.profile).expanduser().resolve()
+    if not candidate.is_file():
+        die(f"candidate does not exist: {candidate}")
+    target = profile / "LEARNINGS.md"
+    if not target.is_file():
+        die(f"missing shared learning file: {target}")
+    evidence = args.evidence
+    entry = f"""\n### {args.title}\n\n- Category: {args.category}\n- Rule: {args.rule}\n- Evidence: {evidence}\n- Scope: {args.scope}\n- Last verified: {args.date}\n"""
+    target.write_text(target.read_text(encoding="utf-8").rstrip() + "\n" + entry, encoding="utf-8")
+    print(target)
+
+
 def preview_start(args: argparse.Namespace) -> None:
     root = project(args.project)
     config = load(root)
@@ -473,6 +531,9 @@ def main() -> None:
     install_parser = automation_sub.add_parser("install"); install_parser.add_argument("--project", required=True); install_parser.add_argument("--force", action="store_true"); install_parser.set_defaults(func=automation_install)
     review_parser = sub.add_parser("weekly-review"); review_parser.add_argument("--project", required=True); review_parser.add_argument("--date", default=dt.date.today().isoformat()); review_parser.set_defaults(func=weekly_review)
     acceptance_parser = sub.add_parser("acceptance"); acceptance_parser.add_argument("--project", required=True); acceptance_parser.add_argument("--date", default=dt.date.today().isoformat()); acceptance_parser.set_defaults(func=acceptance)
+    learning_parser = sub.add_parser("learning"); learning_sub = learning_parser.add_subparsers(required=True)
+    candidate_parser = learning_sub.add_parser("candidate"); candidate_parser.add_argument("--project", required=True); candidate_parser.add_argument("--date", default=dt.date.today().isoformat()); candidate_parser.add_argument("--force", action="store_true"); candidate_parser.set_defaults(func=learning_candidate)
+    promote_parser = learning_sub.add_parser("promote"); promote_parser.add_argument("--candidate", required=True); promote_parser.add_argument("--profile", required=True); promote_parser.add_argument("--title", required=True); promote_parser.add_argument("--category", required=True); promote_parser.add_argument("--rule", required=True); promote_parser.add_argument("--scope", required=True); promote_parser.add_argument("--evidence", required=True); promote_parser.add_argument("--date", default=dt.date.today().isoformat()); promote_parser.set_defaults(func=learning_promote)
     preview_parser = sub.add_parser("preview"); preview_sub = preview_parser.add_subparsers(required=True)
     start_parser = preview_sub.add_parser("start"); start_parser.add_argument("--project", required=True); start_parser.add_argument("--name"); start_parser.add_argument("--command"); start_parser.add_argument("--data-namespace"); start_parser.set_defaults(func=preview_start)
     stop_parser = preview_sub.add_parser("stop"); stop_parser.add_argument("--project", required=True); stop_parser.add_argument("--name"); stop_parser.set_defaults(func=preview_stop)

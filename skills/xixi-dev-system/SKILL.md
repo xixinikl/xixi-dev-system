@@ -19,3 +19,6 @@ acceptance factory, dashboard, or preview tools.
 5. Low-risk fixes require evidence, a rerun, and a separate PR. High-risk areas
    are report-only. Daily observations only become shared learning after weekly
    evidence review.
+6. For a reviewed, repeated or high-impact finding, create a project learning
+   candidate first. Promote it into the shared Profile only with an explicit
+   rule, evidence, and scope.
