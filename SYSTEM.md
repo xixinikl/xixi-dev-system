@@ -34,6 +34,13 @@ command. The system runs the command only in the checked-out worktree. Auto-fix
 is prohibited whenever the update ledger has high-risk paths; otherwise it must
 rerun the acceptance command and records its evidence in the report.
 
+## Learning Promotion
+
+`learning candidate` converts a non-pass or repaired acceptance report into a
+project retrospective candidate. `learning promote` writes a reviewed rule to
+the shared Profile `LEARNINGS.md`. Promotion is deliberately explicit: one-off
+failures cannot automatically change cross-project guidance.
+
 ## Isolated Python
 
 Python projects use `uv` to download the adapter's exact Python version and
