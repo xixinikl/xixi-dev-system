@@ -1,0 +1,4 @@
+interface:
+  display_name: "Xixi Dev System"
+  short_description: "Route projects through Xixi development system"
+  default_prompt: "按我的开发系统处理当前项目"
