@@ -14,6 +14,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import time
 from pathlib import Path
 
 
@@ -172,9 +173,23 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def wait_for_port(process: subprocess.Popen, port: int, timeout: float = 15.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return False
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.25)
+            if sock.connect_ex(("127.0.0.1", port)) == 0:
+                return True
+        time.sleep(0.2)
+    return False
+
+
 def runtime_prepare(args: argparse.Namespace) -> None:
     root = project(args.project)
     config = load(root)
+    (root / ".xds" / "runtime").mkdir(parents=True, exist_ok=True)
     runtime = config["runtime"]
     if runtime.get("manager") != "uv":
         die("only the uv managed runtime is supported for isolated previews")
@@ -414,9 +429,12 @@ def preview_start(args: argparse.Namespace) -> None:
         data_path.parent.mkdir(parents=True, exist_ok=True)
         env[key] = str(data_path)
     log_path = root / ".xds" / "runtime" / f"{name}.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("w", encoding="utf-8") as log:
         cwd = root / config["runtime"].get("workingDirectory", ".")
         process = subprocess.Popen(command, shell=True, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    if not wait_for_port(process, port):
+        die(f"preview did not become ready; inspect {log_path}")
     state = {"pid": process.pid, "url": f"http://127.0.0.1:{port}", "port": port, "dataNamespace": namespace, "command": command, "log": str(log_path)}
     write_json(state_path, state)
     print(json.dumps(state, ensure_ascii=False, indent=2))
