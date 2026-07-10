@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import datetime as dt
 import json
 import os
@@ -202,6 +203,126 @@ def workspace_create(args: argparse.Namespace) -> None:
     print(target)
 
 
+def automation_install(args: argparse.Namespace) -> None:
+    root = project(args.project)
+    load(root)
+    vendor = root / ".xds-system" / "xds.py"
+    workflow = root / ".github" / "workflows" / "xds-daily-updates.yml"
+    weekly_workflow = root / ".github" / "workflows" / "xds-weekly-review.yml"
+    if (vendor.exists() or workflow.exists() or weekly_workflow.exists()) and not args.force:
+        die("automation files already exist; use --force only for a deliberate upgrade")
+    vendor.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(Path(__file__), vendor)
+    workflow.parent.mkdir(parents=True, exist_ok=True)
+    workflow.write_text("""name: Xixi Daily Update Ledger
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: \"Asia/Shanghai date (YYYY-MM-DD), empty means today\"
+        required: false
+        default: \"\"
+  schedule:
+    - cron: \"20 22 * * *\"
+
+permissions:
+  contents: read
+
+jobs:
+  ledger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve report date
+        id: date
+        shell: bash
+        run: |
+          if [ -n \"${{ github.event.inputs.target_date }}\" ]; then
+            echo \"value=${{ github.event.inputs.target_date }}\" >> \"$GITHUB_OUTPUT\"
+          else
+            echo \"value=$(TZ=Asia/Shanghai date +%F)\" >> \"$GITHUB_OUTPUT\"
+          fi
+      - name: Collect collaboration updates
+        run: python3 .xds-system/xds.py updates --project . --date \"${{ steps.date.outputs.value }}\"
+      - name: Write summary
+        if: always()
+        run: |
+          REPORT=\".xds/reports/updates/${{ steps.date.outputs.value }}.md\"
+          if [ -f \"$REPORT\" ]; then cat \"$REPORT\" >> \"$GITHUB_STEP_SUMMARY\"; fi
+      - name: Upload update ledger
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xds-update-ledger-${{ steps.date.outputs.value }}
+          path: .xds/reports/updates/
+          retention-days: 90
+""", encoding="utf-8")
+    weekly_workflow.write_text("""name: Xixi Weekly Collaboration Review
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: \"10 23 * * 0\"
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build weekly evidence review
+        run: python3 .xds-system/xds.py weekly-review --project . --date \"$(TZ=Asia/Shanghai date +%F)\"
+      - name: Write summary
+        if: always()
+        run: cat ".xds/reports/weekly/$(TZ=Asia/Shanghai date +%F).md" >> \"$GITHUB_STEP_SUMMARY\"
+      - name: Upload weekly review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xds-weekly-review
+          path: .xds/reports/weekly/
+          retention-days: 90
+""", encoding="utf-8")
+    print(vendor)
+    print(workflow)
+    print(weekly_workflow)
+
+
+def weekly_review(args: argparse.Namespace) -> None:
+    root = project(args.project)
+    config = load(root)
+    end, _, _ = date_window(args.date)
+    days = [end - dt.timedelta(days=offset) for offset in range(6, -1, -1)]
+    collected = []
+    for date in days:
+        updates(argparse.Namespace(project=str(root), date=date.isoformat()))
+        report = root / ".xds" / "reports" / "updates" / f"{date}.json"
+        collected.extend(json.loads(report.read_text(encoding="utf-8")).get("commits", []))
+    unique = {item["sha"]: item for item in collected}
+    commits = sorted(unique.values(), key=lambda item: item["committedAt"])
+    risks = Counter(path for item in commits for path in item.get("riskFiles", []))
+    authors = Counter(item["author"] for item in commits)
+    output = root / ".xds" / "reports" / "weekly" / end.isoformat()
+    payload = {"schemaVersion": 1, "endDate": end.isoformat(), "startDate": days[0].isoformat(), "repository": config["repository"], "commitCount": len(commits), "authors": authors, "riskFiles": risks}
+    write_json(output.with_suffix(".json"), payload)
+    lines = [f"# Weekly collaboration review - {days[0]} to {end}", "", f"- Remote commits: {len(commits)}", "- This is evidence collection, not automatic global learning promotion.", "", "## Contributors"]
+    lines.extend(f"- {author}: {count}" for author, count in authors.most_common() or [("none", 0)])
+    lines += ["", "## Risk paths"]
+    lines.extend(f"- {path}: {count}" for path, count in risks.most_common() or [("none", 0)])
+    lines += ["", "## Promotion gate", "- Promote only repeated or high-impact findings with a concrete test, rule, or prevention action."]
+    output.with_suffix(".md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(output.with_suffix(".md"))
+
+
 def preview_start(args: argparse.Namespace) -> None:
     root = project(args.project)
     config = load(root)
@@ -266,6 +387,9 @@ def main() -> None:
     prepare_parser = runtime_sub.add_parser("prepare"); prepare_parser.add_argument("--project", required=True); prepare_parser.add_argument("--name"); prepare_parser.set_defaults(func=runtime_prepare)
     workspace_parser = sub.add_parser("workspace"); workspace_sub = workspace_parser.add_subparsers(required=True)
     create_parser = workspace_sub.add_parser("create"); create_parser.add_argument("--project", required=True); create_parser.add_argument("--branch", required=True); create_parser.add_argument("--base", default="origin/main"); create_parser.set_defaults(func=workspace_create)
+    automation_parser = sub.add_parser("automation"); automation_sub = automation_parser.add_subparsers(required=True)
+    install_parser = automation_sub.add_parser("install"); install_parser.add_argument("--project", required=True); install_parser.add_argument("--force", action="store_true"); install_parser.set_defaults(func=automation_install)
+    review_parser = sub.add_parser("weekly-review"); review_parser.add_argument("--project", required=True); review_parser.add_argument("--date", default=dt.date.today().isoformat()); review_parser.set_defaults(func=weekly_review)
     preview_parser = sub.add_parser("preview"); preview_sub = preview_parser.add_subparsers(required=True)
     start_parser = preview_sub.add_parser("start"); start_parser.add_argument("--project", required=True); start_parser.add_argument("--name"); start_parser.add_argument("--command"); start_parser.add_argument("--data-namespace"); start_parser.set_defaults(func=preview_start)
     stop_parser = preview_sub.add_parser("stop"); stop_parser.add_argument("--project", required=True); stop_parser.add_argument("--name"); stop_parser.set_defaults(func=preview_stop)

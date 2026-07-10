@@ -14,6 +14,7 @@ bin/xixi-dev-system doctor --project .
 bin/xixi-dev-system onboard --project /path/to/project --name "Project" --repo "https://github.com/owner/repo"
 bin/xixi-dev-system updates --project /path/to/project --date 2026-07-11
 bin/xixi-dev-system runtime prepare --project /path/to/project
+bin/xixi-dev-system automation install --project /path/to/project
 bin/xixi-dev-system workspace create --project /path/to/project --branch feature/example
 bin/xixi-dev-system preview start --project /path/to/project
 ```

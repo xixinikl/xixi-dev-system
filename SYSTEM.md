@@ -23,6 +23,10 @@ dependencies or display surfaces, not separate commands the user must remember.
 3. Daily reports are observations. Weekly review promotes only repeated or
    high-impact, evidenced rules into shared learning.
 
+`automation install` vendors the collector into `.xds-system/` and creates a
+daily GitHub Actions workflow. The workflow writes only an Actions summary and
+90-day artifact; it never checks out a collaboration branch for execution.
+
 ## Isolated Python
 
 Python projects use `uv` to download the adapter's exact Python version and
