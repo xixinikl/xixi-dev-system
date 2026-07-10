@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import datetime as dt
 import json
 import os
 import re
+import shlex
+import shutil
 import signal
 import socket
 import subprocess
@@ -50,6 +53,15 @@ def write_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def runtime_python(root: Path, config: dict, name: str) -> Path:
+    suffix = "Scripts/python.exe" if os.name == "nt" else "bin/python"
+    return root / ".xds" / "venvs" / name / suffix
+
+
+def expand(value: str, *, python: Path, namespace: str) -> str:
+    return value.replace("{python}", shlex.quote(str(python))).replace("{namespace}", namespace)
+
+
 def onboard(args: argparse.Namespace) -> None:
     root = project(args.project)
     target = root / CONFIG
@@ -67,6 +79,8 @@ def onboard(args: argparse.Namespace) -> None:
             "doctorCommand": args.doctor_command,
             "portEnvironment": "PORT",
             "dataNamespaceEnvironment": "XDS_DATA_NAMESPACE",
+            "workingDirectory": ".",
+            "requirements": [],
         },
         "collaboration": {
             "focusAuthors": args.focus_author,
@@ -78,6 +92,8 @@ def onboard(args: argparse.Namespace) -> None:
         path.mkdir(parents=True, exist_ok=True)
     if run_git(root, "rev-parse", "--is-inside-work-tree", check=False) == "true":
         exclude_path = Path(run_git(root, "rev-parse", "--git-path", "info/exclude"))
+        if not exclude_path.is_absolute():
+            exclude_path = root / exclude_path
         exclude_path.parent.mkdir(parents=True, exist_ok=True)
         existing = exclude_path.read_text(encoding="utf-8") if exclude_path.exists() else ""
         if ".xds/" not in existing.splitlines():
@@ -91,7 +107,7 @@ def doctor(args: argparse.Namespace) -> None:
     needed = ["schemaVersion", "projectName", "repository", "defaultBranch"]
     runtime = config.get("runtime", {})
     missing = [key for key in needed if not config.get(key)]
-    missing.extend(f"runtime.{key}" for key in ("manager", "startCommand", "doctorCommand") if not runtime.get(key))
+    missing.extend(f"runtime.{key}" for key in ("manager", "startCommand", "doctorCommand", "workingDirectory") if not runtime.get(key))
     git_ok = run_git(root, "rev-parse", "--is-inside-work-tree", check=False) == "true"
     reports_ok = (root / ".xds" / "reports" / "updates").is_dir()
     print(f"project: {config.get('projectName', 'unknown')}")
@@ -156,6 +172,26 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def runtime_prepare(args: argparse.Namespace) -> None:
+    root = project(args.project)
+    config = load(root)
+    runtime = config["runtime"]
+    if runtime.get("manager") != "uv":
+        die("only the uv managed runtime is supported for isolated previews")
+    if not shutil.which("uv"):
+        die("uv is required; install it first with the documented user-level installer")
+    name = args.name or "default"
+    python = runtime_python(root, config, name)
+    venv = python.parent.parent
+    subprocess.run(["uv", "venv", "--python", str(runtime["python"]), str(venv)], cwd=root, check=True)
+    for requirement in runtime.get("requirements", []):
+        requirement_path = root / requirement
+        if not requirement_path.is_file():
+            die(f"missing requirements file: {requirement_path}")
+        subprocess.run(["uv", "pip", "install", "--python", str(python), "-r", str(requirement_path)], cwd=root, check=True)
+    print(python)
+
+
 def workspace_create(args: argparse.Namespace) -> None:
     root = project(args.project)
     safe = re.sub(r"[^A-Za-z0-9._-]+", "-", args.branch).strip("-")
@@ -165,6 +201,186 @@ def workspace_create(args: argparse.Namespace) -> None:
     run_git(root, "fetch", "origin", "--prune")
     run_git(root, "worktree", "add", "-b", args.branch, str(target), args.base)
     print(target)
+
+
+def automation_install(args: argparse.Namespace) -> None:
+    root = project(args.project)
+    load(root)
+    vendor = root / ".xds-system" / "xds.py"
+    workflow = root / ".github" / "workflows" / "xds-daily-updates.yml"
+    weekly_workflow = root / ".github" / "workflows" / "xds-weekly-review.yml"
+    if (vendor.exists() or workflow.exists() or weekly_workflow.exists()) and not args.force:
+        die("automation files already exist; use --force only for a deliberate upgrade")
+    vendor.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(Path(__file__), vendor)
+    workflow.parent.mkdir(parents=True, exist_ok=True)
+    workflow.write_text("""name: Xixi Daily Update Ledger
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: \"Asia/Shanghai date (YYYY-MM-DD), empty means today\"
+        required: false
+        default: \"\"
+  schedule:
+    - cron: \"20 22 * * *\"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  ledger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve report date
+        id: date
+        shell: bash
+        run: |
+          if [ -n \"${{ github.event.inputs.target_date }}\" ]; then
+            echo \"value=${{ github.event.inputs.target_date }}\" >> \"$GITHUB_OUTPUT\"
+          else
+            echo \"value=$(TZ=Asia/Shanghai date +%F)\" >> \"$GITHUB_OUTPUT\"
+          fi
+      - name: Collect collaboration updates
+        run: python3 .xds-system/xds.py updates --project . --date \"${{ steps.date.outputs.value }}\"
+      - name: Run update-aware acceptance
+        id: acceptance
+        continue-on-error: true
+        run: python3 .xds-system/xds.py acceptance --project . --date \"${{ steps.date.outputs.value }}\"
+      - name: Write summary
+        if: always()
+        run: |
+          for REPORT in \".xds/reports/updates/${{ steps.date.outputs.value }}.md\" \".xds/reports/acceptance/${{ steps.date.outputs.value }}.md\"; do
+            if [ -f \"$REPORT\" ]; then cat \"$REPORT\" >> \"$GITHUB_STEP_SUMMARY\"; fi
+          done
+      - name: Upload update evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xds-daily-evidence-${{ steps.date.outputs.value }}
+          path: .xds/reports/
+          retention-days: 90
+      - name: Create verified low-risk repair PR
+        if: always() && steps.acceptance.outcome == 'success'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: \"fix: apply verified xds low-risk repair\"
+          branch: \"codex/xds-auto-fix-${{ steps.date.outputs.value }}\"
+          delete-branch: true
+          title: \"fix: verified daily low-risk repair (${{ steps.date.outputs.value }})\"
+          body: |
+            Generated by xixi-dev-system after a configured low-risk repair passed its verification command.
+            The update ledger contained no high-risk paths. Review the Actions artifact before merging.
+""", encoding="utf-8")
+    weekly_workflow.write_text("""name: Xixi Weekly Collaboration Review
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: \"10 23 * * 0\"
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build weekly evidence review
+        run: python3 .xds-system/xds.py weekly-review --project . --date \"$(TZ=Asia/Shanghai date +%F)\"
+      - name: Write summary
+        if: always()
+        run: cat ".xds/reports/weekly/$(TZ=Asia/Shanghai date +%F).md" >> \"$GITHUB_STEP_SUMMARY\"
+      - name: Upload weekly review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xds-weekly-review
+          path: .xds/reports/weekly/
+          retention-days: 90
+""", encoding="utf-8")
+    print(vendor)
+    print(workflow)
+    print(weekly_workflow)
+
+
+def weekly_review(args: argparse.Namespace) -> None:
+    root = project(args.project)
+    config = load(root)
+    end, _, _ = date_window(args.date)
+    days = [end - dt.timedelta(days=offset) for offset in range(6, -1, -1)]
+    collected = []
+    for date in days:
+        updates(argparse.Namespace(project=str(root), date=date.isoformat()))
+        report = root / ".xds" / "reports" / "updates" / f"{date}.json"
+        collected.extend(json.loads(report.read_text(encoding="utf-8")).get("commits", []))
+    unique = {item["sha"]: item for item in collected}
+    commits = sorted(unique.values(), key=lambda item: item["committedAt"])
+    risks = Counter(path for item in commits for path in item.get("riskFiles", []))
+    authors = Counter(item["author"] for item in commits)
+    output = root / ".xds" / "reports" / "weekly" / end.isoformat()
+    payload = {"schemaVersion": 1, "endDate": end.isoformat(), "startDate": days[0].isoformat(), "repository": config["repository"], "commitCount": len(commits), "authors": authors, "riskFiles": risks}
+    write_json(output.with_suffix(".json"), payload)
+    lines = [f"# Weekly collaboration review - {days[0]} to {end}", "", f"- Remote commits: {len(commits)}", "- This is evidence collection, not automatic global learning promotion.", "", "## Contributors"]
+    lines.extend(f"- {author}: {count}" for author, count in authors.most_common() or [("none", 0)])
+    lines += ["", "## Risk paths"]
+    lines.extend(f"- {path}: {count}" for path, count in risks.most_common() or [("none", 0)])
+    lines += ["", "## Promotion gate", "- Promote only repeated or high-impact findings with a concrete test, rule, or prevention action."]
+    output.with_suffix(".md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(output.with_suffix(".md"))
+
+
+def acceptance(args: argparse.Namespace) -> None:
+    root = project(args.project)
+    config = load(root)
+    date = args.date
+    updates(argparse.Namespace(project=str(root), date=date))
+    ledger = json.loads((root / ".xds" / "reports" / "updates" / f"{date}.json").read_text(encoding="utf-8"))
+    risk_files = sorted({path for item in ledger.get("commits", []) for path in item.get("riskFiles", [])})
+    quality = config.get("quality", {})
+    command = quality.get("acceptanceCommand", "").replace("{date}", date)
+    if not command:
+        die("missing quality.acceptanceCommand")
+    result = subprocess.run(command, shell=True, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    autofix = {"attempted": False, "kept": False}
+    fix_command = quality.get("lowRiskAutofixCommand", "").replace("{date}", date)
+    if result.returncode and fix_command and not risk_files:
+        fix = subprocess.run(fix_command, shell=True, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        verify = subprocess.run(command, shell=True, cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        autofix = {"attempted": True, "kept": fix.returncode == 0 and verify.returncode == 0, "fixExitCode": fix.returncode, "verifyExitCode": verify.returncode, "outputTail": (fix.stdout or "")[-4000:]}
+        if autofix["kept"]:
+            result = verify
+    status = "pass" if result.returncode == 0 and not risk_files else "conditional" if result.returncode == 0 else "fail"
+    payload = {"schemaVersion": 1, "date": date, "verdict": status, "updates": ledger["commitCount"], "riskFiles": risk_files, "checkExitCode": result.returncode, "checkOutputTail": (result.stdout or "")[-4000:], "autofix": autofix}
+    output = root / ".xds" / "reports" / "acceptance" / date
+    write_json(output.with_suffix(".json"), payload)
+    text = f"""# Acceptance report - {date}
+
+- Verdict: `{status}`
+- Collaboration updates: {ledger['commitCount']}
+- High-risk changed paths: {', '.join(risk_files) or 'none'}
+- Check exit: {result.returncode}
+- Low-risk autofix attempted: {autofix['attempted']}
+- Low-risk autofix kept: {autofix['kept']}
+
+## Scope boundary
+
+The configured acceptance command ran only in this checked-out worktree. Remote collaboration branches were collected as facts and were not executed.
+"""
+    output.with_suffix(".md").write_text(text, encoding="utf-8")
+    print(output.with_suffix(".md"))
+    raise SystemExit(0 if status in ("pass", "conditional") else result.returncode or 1)
 
 
 def preview_start(args: argparse.Namespace) -> None:
@@ -179,12 +395,24 @@ def preview_start(args: argparse.Namespace) -> None:
         die("missing runtime.startCommand")
     port = free_port()
     namespace = args.data_namespace or f"xds-{config['projectName'].lower().replace(' ', '-')}-{name}"
+    python = runtime_python(root, config, name)
+    if not args.command and not python.is_file():
+        die(f"isolated runtime is not prepared: {python}; run runtime prepare first")
+    command = expand(command, python=python, namespace=namespace)
     env = os.environ.copy()
     env[config["runtime"].get("portEnvironment", "PORT")] = str(port)
     env[config["runtime"].get("dataNamespaceEnvironment", "XDS_DATA_NAMESPACE")] = namespace
+    for key, value in config.get("data", {}).get("environment", {}).items():
+        path_value = expand(value, python=python, namespace=namespace)
+        data_path = Path(path_value)
+        if not data_path.is_absolute():
+            data_path = root / data_path
+        data_path.parent.mkdir(parents=True, exist_ok=True)
+        env[key] = str(data_path)
     log_path = root / ".xds" / "runtime" / f"{name}.log"
     with log_path.open("w", encoding="utf-8") as log:
-        process = subprocess.Popen(command, shell=True, cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        cwd = root / config["runtime"].get("workingDirectory", ".")
+        process = subprocess.Popen(command, shell=True, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     state = {"pid": process.pid, "url": f"http://127.0.0.1:{port}", "port": port, "dataNamespace": namespace, "command": command, "log": str(log_path)}
     write_json(state_path, state)
     print(json.dumps(state, ensure_ascii=False, indent=2))
@@ -215,8 +443,14 @@ def main() -> None:
     onboard_parser.set_defaults(func=onboard)
     doctor_parser = sub.add_parser("doctor"); doctor_parser.add_argument("--project", required=True); doctor_parser.set_defaults(func=doctor)
     updates_parser = sub.add_parser("updates"); updates_parser.add_argument("--project", required=True); updates_parser.add_argument("--date", default=dt.date.today().isoformat()); updates_parser.set_defaults(func=updates)
+    runtime_parser = sub.add_parser("runtime"); runtime_sub = runtime_parser.add_subparsers(required=True)
+    prepare_parser = runtime_sub.add_parser("prepare"); prepare_parser.add_argument("--project", required=True); prepare_parser.add_argument("--name"); prepare_parser.set_defaults(func=runtime_prepare)
     workspace_parser = sub.add_parser("workspace"); workspace_sub = workspace_parser.add_subparsers(required=True)
     create_parser = workspace_sub.add_parser("create"); create_parser.add_argument("--project", required=True); create_parser.add_argument("--branch", required=True); create_parser.add_argument("--base", default="origin/main"); create_parser.set_defaults(func=workspace_create)
+    automation_parser = sub.add_parser("automation"); automation_sub = automation_parser.add_subparsers(required=True)
+    install_parser = automation_sub.add_parser("install"); install_parser.add_argument("--project", required=True); install_parser.add_argument("--force", action="store_true"); install_parser.set_defaults(func=automation_install)
+    review_parser = sub.add_parser("weekly-review"); review_parser.add_argument("--project", required=True); review_parser.add_argument("--date", default=dt.date.today().isoformat()); review_parser.set_defaults(func=weekly_review)
+    acceptance_parser = sub.add_parser("acceptance"); acceptance_parser.add_argument("--project", required=True); acceptance_parser.add_argument("--date", default=dt.date.today().isoformat()); acceptance_parser.set_defaults(func=acceptance)
     preview_parser = sub.add_parser("preview"); preview_sub = preview_parser.add_subparsers(required=True)
     start_parser = preview_sub.add_parser("start"); start_parser.add_argument("--project", required=True); start_parser.add_argument("--name"); start_parser.add_argument("--command"); start_parser.add_argument("--data-namespace"); start_parser.set_defaults(func=preview_start)
     stop_parser = preview_sub.add_parser("stop"); stop_parser.add_argument("--project", required=True); stop_parser.add_argument("--name"); stop_parser.set_defaults(func=preview_stop)
