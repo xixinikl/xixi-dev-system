@@ -16,6 +16,9 @@ shell `PATH` containing the command.
    Profile before making cross-project workflow, writing, or preference
    decisions. The Profile repository remains the preference source of truth;
    the user does not manually invoke it.
+   Treat visual preferences as guidance, never as permission to copy another
+   product's colors, typography, layout, or components. Visual consistency is
+   scoped to the current product unless the user explicitly requests reuse.
 2. Locate `.xixi-dev-system.json`. If absent, run `xixi-dev-system onboard`
    from the project root. It auto-detects common project facts and never
    overwrites an existing adapter. Only ask for values detection cannot safely
