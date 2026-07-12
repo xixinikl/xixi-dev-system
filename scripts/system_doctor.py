@@ -23,10 +23,15 @@ def main() -> None:
     checks: list[tuple[str, bool]] = []
     for skill in manifest["installedSkills"]:
         checks.append((f"skill:{skill}", (codex_home / "skills" / skill / "SKILL.md").is_file()))
+    weekly_automations = [
+        path for path in (codex_home / "automations").glob("*/automation.toml")
+        if 'name = "每周个人开发系统回顾"' in path.read_text(encoding="utf-8")
+        and 'status = "ACTIVE"' in path.read_text(encoding="utf-8")
+    ]
     checks.extend([
         ("command:xixi-dev-system", (codex_home / "bin/xixi-dev-system").exists()),
         ("profile", (codex_home / "xixi-dev-system/profile/.git").is_dir()),
-        ("weekly-automation", (codex_home / "automations/weekly-personal-dev-system/automation.toml").is_file()),
+        ("weekly-automation", len(weekly_automations) == 1),
     ])
     if not args.skip_github:
         for repo in manifest["repositories"]:

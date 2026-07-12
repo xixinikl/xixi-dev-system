@@ -39,19 +39,25 @@ def replace_tree(source: Path, target: Path) -> None:
 def write_automation(codex_home: Path, workspace: Path) -> Path:
     prompt = (ROOT / "automations/weekly-personal-dev-system.prompt.md").read_text(encoding="utf-8")
     target = codex_home / "automations" / "weekly-personal-dev-system" / "automation.toml"
+    for existing in (codex_home / "automations").glob("*/automation.toml"):
+        if 'name = "每周个人开发系统回顾"' in existing.read_text(encoding="utf-8"):
+            target = existing
+            break
     target.parent.mkdir(parents=True, exist_ok=True)
+    automation_id = target.parent.name
     now = int(time.time() * 1000)
     quoted_prompt = json.dumps(prompt, ensure_ascii=False)
     quoted_workspace = json.dumps(str(workspace), ensure_ascii=False)
     target.write_text(
         "\n".join([
             "version = 1",
-            'id = "weekly-personal-dev-system"',
+            f"id = {json.dumps(automation_id)}",
             'kind = "cron"',
             'name = "每周个人开发系统回顾"',
             f"prompt = {quoted_prompt}",
             'status = "ACTIVE"',
             'rrule = "FREQ=WEEKLY;BYDAY=MO;BYHOUR=8;BYMINUTE=0"',
+            'model = "gpt-5.6-terra"',
             'reasoning_effort = "high"',
             'execution_environment = "local"',
             f"target = {{ type = \"project\", project_id = {quoted_workspace} }}",
