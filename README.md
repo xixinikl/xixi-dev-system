@@ -24,6 +24,19 @@ cd xixi-dev-system
 bin/install-local.sh
 ```
 
+To restore the complete multi-repository system, including the Profile,
+formal-workflow Skill, acceptance Skill, and Monday weekly automation:
+
+```bash
+bin/bootstrap-new-machine.sh --workspace "/path/to/your/Codex/workspace"
+bin/system-doctor.sh
+```
+
+The authoritative repository and installation inventory is
+[`system/system-manifest.json`](system/system-manifest.json). The weekly prompt
+is versioned in [`automations/`](automations/) instead of living only on one
+computer.
+
 Codex then uses `~/.codex/bin/xixi-dev-system` as the stable command path. To
 update an existing installation, pull this repository and run
 `bin/install-local.sh --upgrade`; it replaces only xixi-dev-system-owned files.

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "systemName": "xixi-dev-system",
+  "entryRepository": "xixinikl/xixi-dev-system",
+  "dashboardUrl": "https://xixinikl.github.io/quality-hub/",
+  "repositories": [
+    { "name": "xixi-dev-system", "repository": "xixinikl/xixi-dev-system", "role": "single-entry", "visibility": "public", "requiredOnMachine": true },
+    { "name": "xixi-agent-profile", "repository": "xixinikl/xixi-agent-profile", "role": "personal-preferences", "visibility": "public", "requiredOnMachine": true },
+    { "name": "standard-project-workflow", "repository": "xixinikl/standard-project-workflow", "role": "formal-workflow", "visibility": "public", "requiredOnMachine": true },
+    { "name": "codex-acceptance-factory", "repository": "xixinikl/codex-acceptance-factory", "role": "acceptance-engine", "visibility": "public", "requiredOnMachine": true },
+    { "name": "quality-hub", "repository": "xixinikl/quality-hub", "role": "user-dashboard", "visibility": "public", "requiredOnMachine": false },
+    { "name": "gongtu-project", "repository": "xixinikl/gongtu-project", "role": "product", "visibility": "public", "requiredOnMachine": false },
+    { "name": "code-quest", "repository": "xixinikl/code-quest", "role": "product", "visibility": "public", "requiredOnMachine": false },
+    { "name": "canvas-storm", "repository": "xixinikl/canvas-storm", "role": "product", "visibility": "public", "requiredOnMachine": false }
+  ],
+  "installedSkills": ["xixi-dev-system", "standard-project-workflow", "daily-acceptance-factory"],
+  "automation": {
+    "id": "weekly-personal-dev-system",
+    "name": "每周个人开发系统回顾",
+    "schedule": "FREQ=WEEKLY;BYDAY=MO;BYHOUR=8;BYMINUTE=0",
+    "template": "automations/weekly-personal-dev-system.prompt.md"
+  }
+}
