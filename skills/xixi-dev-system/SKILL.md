@@ -8,8 +8,10 @@ description: Route every Xixi coding task through the unified development system
 Use this as the single entry point. Do not ask the user to choose among profile,
 acceptance factory, dashboard, or preview tools.
 
-1. Locate `.xixi-dev-system.json`. If absent, run system `onboard` without
-   overwriting existing project files.
+1. Locate `.xixi-dev-system.json`. If absent, run `xixi-dev-system onboard`
+   from the project root. It auto-detects common project facts and never
+   overwrites an existing adapter. Only ask for values detection cannot safely
+   infer.
 2. Run `doctor` before changing code. Treat remote commits, branch heads, and
    open PRs as collaboration facts; do not assume a default branch is active.
 3. For daily work, run `updates` first. Read its compact report before choosing

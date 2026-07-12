@@ -63,21 +63,70 @@ def expand(value: str, *, python: Path, namespace: str) -> str:
     return value.replace("{python}", shlex.quote(str(python))).replace("{namespace}", namespace)
 
 
+def package_scripts(root: Path) -> dict[str, str]:
+    path = root / "package.json"
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    scripts = value.get("scripts", {})
+    return scripts if isinstance(scripts, dict) else {}
+
+
+def detect_adapter(root: Path) -> dict[str, str]:
+    scripts = package_scripts(root)
+    if scripts:
+        runner = "npm"
+        if (root / "pnpm-lock.yaml").exists():
+            runner = "pnpm"
+        elif (root / "yarn.lock").exists():
+            runner = "yarn"
+        start_script = next((name for name in ("dev", "start", "preview") if name in scripts), "")
+        doctor_script = next((name for name in ("verify", "test", "check", "lint", "build") if name in scripts), "")
+        start = f"{runner} run {start_script}" if start_script else ""
+        doctor = f"{runner} run {doctor_script}" if doctor_script else ""
+        return {"manager": "uv", "python": "3.11", "startCommand": start, "doctorCommand": doctor}
+    if (root / "index.html").exists():
+        return {
+            "manager": "uv",
+            "python": "3.11",
+            "startCommand": "{python} -m http.server $PORT --bind 127.0.0.1",
+            "doctorCommand": "git diff --check",
+        }
+    return {"manager": "uv", "python": "3.11", "startCommand": "", "doctorCommand": "git diff --check"}
+
+
+def detect_git_value(root: Path, *args: str) -> str:
+    if run_git(root, "rev-parse", "--is-inside-work-tree", check=False) != "true":
+        return ""
+    return run_git(root, *args, check=False)
+
+
 def onboard(args: argparse.Namespace) -> None:
     root = project(args.project)
     target = root / CONFIG
     if target.exists():
         die(f"refusing to overwrite {target}")
+    detected = detect_adapter(root)
+    repository = args.repo or detect_git_value(root, "remote", "get-url", "origin")
+    branch = (
+        args.default_branch
+        or detect_git_value(root, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").removeprefix("origin/")
+        or detect_git_value(root, "branch", "--show-current")
+        or "main"
+    )
     config = {
         "schemaVersion": 1,
-        "projectName": args.name,
-        "repository": args.repo,
-        "defaultBranch": args.default_branch,
+        "projectName": args.name or root.name,
+        "repository": repository,
+        "defaultBranch": branch,
         "runtime": {
-            "manager": args.manager,
-            "python": args.python,
-            "startCommand": args.start_command,
-            "doctorCommand": args.doctor_command,
+            "manager": args.manager or detected["manager"],
+            "python": args.python or detected["python"],
+            "startCommand": args.start_command or detected["startCommand"],
+            "doctorCommand": args.doctor_command or detected["doctorCommand"],
             "portEnvironment": "PORT",
             "dataNamespaceEnvironment": "XDS_DATA_NAMESPACE",
             "workingDirectory": ".",
@@ -86,6 +135,11 @@ def onboard(args: argparse.Namespace) -> None:
         "collaboration": {
             "focusAuthors": args.focus_author,
             "riskPathPatterns": args.risk_path,
+        },
+        "quality": {
+            "acceptanceCommand": args.doctor_command or detected["doctorCommand"],
+            "autofixCommand": "",
+            "autofixPaths": [],
         },
         "learning": {
             "projectRetrospectiveDirectory": "doc/retrospectives",
@@ -104,6 +158,11 @@ def onboard(args: argparse.Namespace) -> None:
         if ".xds/" not in existing.splitlines():
             exclude_path.write_text(existing.rstrip() + "\n.xds/\n", encoding="utf-8")
     print(f"Created {target}")
+    print(f"Detected: {config['projectName']} · {config['runtime']['manager']} · {config['defaultBranch']}")
+    if not repository:
+        print("Next: add a GitHub origin, then set repository in .xixi-dev-system.json")
+    if not config["runtime"]["startCommand"]:
+        print("Next: set runtime.startCommand in .xixi-dev-system.json before preview")
 
 
 def doctor(args: argparse.Namespace) -> None:
@@ -516,7 +575,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="xixi-dev-system")
     sub = parser.add_subparsers(dest="command", required=True)
     onboard_parser = sub.add_parser("onboard")
-    for flag, required, default in (("--project", True, None), ("--name", True, None), ("--repo", True, None), ("--default-branch", False, "main"), ("--manager", False, "uv"), ("--python", False, "3.11"), ("--start-command", False, ""), ("--doctor-command", False, "")):
+    for flag, required, default in (("--project", False, "."), ("--name", False, None), ("--repo", False, None), ("--default-branch", False, None), ("--manager", False, None), ("--python", False, None), ("--start-command", False, None), ("--doctor-command", False, None)):
         onboard_parser.add_argument(flag, required=required, default=default)
     onboard_parser.add_argument("--focus-author", action="append", default=[])
     onboard_parser.add_argument("--risk-path", action="append", default=["auth", "payment", "migration", "deploy", "secret"])

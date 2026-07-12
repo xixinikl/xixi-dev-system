@@ -7,11 +7,19 @@ promotion without making the user remember separate repositories.
 ## One command
 
 ```bash
-bin/xixi-dev-system doctor --project .
+xixi-dev-system onboard
+```
+
+Run it inside a new project. It detects the project name, GitHub remote,
+default branch, package manager, common start command, and common quality
+command. Nothing is overwritten. Then verify the adapter with:
+
+```bash
+xixi-dev-system doctor --project .
 ```
 
 ```bash
-bin/xixi-dev-system onboard --project /path/to/project --name "Project" --repo "https://github.com/owner/repo"
+bin/xixi-dev-system onboard
 bin/xixi-dev-system updates --project /path/to/project --date 2026-07-11
 bin/xixi-dev-system runtime prepare --project /path/to/project
 bin/xixi-dev-system automation install --project /path/to/project
@@ -21,6 +29,9 @@ bin/xixi-dev-system preview start --project /path/to/project
 
 The installed `xixi-dev-system` skill is the agent-facing entry point. The CLI
 is the deterministic implementation behind it.
+
+For a plain-Chinese explanation of which repository does what, read
+[`docs/repository-map.zh-CN.md`](docs/repository-map.zh-CN.md).
 
 ## Rules
 
