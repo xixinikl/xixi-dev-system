@@ -96,7 +96,7 @@ verification
 | [x] | E3 系统增强 | learning/automation/goal增强及测试 | 能发现归属项目、生成候选、检查CDS Goal；不自动修改业务仓库 | 13项unittest；owner发现、portfolio与goal lint实跑通过 |
 | [x] | E4 Profile增强 | 长期规则、CDS模板、索引与维护协议 | 新Agent能找到并正确使用；与现有文档无冲突 | `CDS_GOAL_WORKFLOW.md`、`EVIDENCE_LEARNING_WORKFLOW.md`及四个入口链接检查 |
 | [x] | E5 全链路验证 | 单元测试、临时目录演练、三个真实工作副本只读演练 | 输出稳定、无越界扫描、无未验证完成项 | 临时CODEX_HOME安装；证据数34+6+10；来源Git状态前后一致 |
-| [ ] | E6 发布与完成审计 | 两仓库提交、推送、最终审计 | 提交范围清晰、远端可见、所有显式要求有证据 | 待填 |
+| [x] | E6 发布与完成审计 | 两仓库提交、推送、最终审计 | 提交范围清晰、远端可见、所有显式要求有证据 | xixi-dev-system `4d14bab` / PR #12；xixi-agent-profile `762b3a9` / PR #3 |
 
 ## 7. PR与提交边界
 
@@ -125,8 +125,14 @@ verification
 - [x] CDS Goal 写法已进入系统检查/模板和 Profile 长期规则。
 - [x] 新能力有自动化测试和临时目录演练。
 - [x] 两个目标仓库的现有改动已审计且未被覆盖。
-- [ ] `xixi-dev-system` 与 `xixi-agent-profile` 分别提交并推送。
-- [ ] 最终报告列出真实完成项、未完成项、验证命令和提交哈希。
+- [x] `xixi-dev-system` 与 `xixi-agent-profile` 分别提交并推送，并建立独立PR。
+- [x] 最终报告列出真实完成项、未完成项、验证命令和提交哈希。
+
+发布证据：
+
+- `xixi-dev-system`：提交`4d14bab`，分支`cx/goal-state-kernel-v1`，PR `https://github.com/xixinikl/xixi-dev-system/pull/12`。
+- `xixi-agent-profile`：提交`762b3a9`，分支`cx/industrial-dev-os`，PR `https://github.com/xixinikl/xixi-agent-profile/pull/3`。
+- 两个PR均以各自`main`为目标，不跨仓库混合提交。
 
 ## 10. 开 Goal 使用的目标文本
 
