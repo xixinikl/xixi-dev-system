@@ -89,3 +89,21 @@ Every promotion candidate needs source paths, the repeated pattern, proposed
 scope, enforcement mode, a counterexample or limit, and verification. Keep
 one-project facts in that project; promote stable cross-project rules to the
 Profile; implement deterministic checks and automation in xixi-dev-system.
+
+When entering a project with `错误复盘.md`, `RETROSPECTIVE.md`, or
+`doc/retrospectives/`, harvest into the project-local
+`.xds/learning/registry.json`. Do not commit that raw registry by default.
+Legacy entries may be incomplete; mark them `needs_completion` instead of
+inventing fields. A changed source becomes `needs_re_review`; unchanged sources
+remain idempotent; zero entries are valid.
+
+`learning review` is the required human gate. Profile promotion needs evidence
+from two distinct origins, or source evidence of an owner correction plus an
+explicit high-impact reviewer decision. `learning publish` may write only an
+`approved_for_profile` candidate and must remain idempotent. Never infer owner
+approval from the existence of a retrospective.
+
+On first entry to or clone of the xixi-dev-system repository, follow its
+`AGENTS.md` and run `automation ensure-learning` for the Profile owner's local
+workspace. Use the stable automation id and update it; never create a duplicate
+task. If multiple matching automations exist, stop for review.

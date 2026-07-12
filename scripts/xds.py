@@ -33,6 +33,21 @@ DISCOVERY_SKIPS = {
     ".git", ".xds", ".xds-system", "node_modules", "venv", ".venv", "Library",
     ".cache", ".npm", ".nvm", ".codex", "dist", "build", "output",
 }
+RETROSPECTIVE_NAMES = {"错误复盘.md", "RETROSPECTIVE.md"}
+RETROSPECTIVE_LABELS = {
+    "scenario": ("场景", "已证实事实", "observed problem", "scenario"),
+    "mistake": ("我做错了什么", "错误", "mistake"),
+    "owner_correction": ("用户如何纠正", "用户纠正", "owner correction"),
+    "root_cause": ("根因", "root cause"),
+    "rule": ("以后必须这样做", "规则", "预防动作", "proposed rule", "prevention action"),
+    "verification": ("可验证的防复发动作", "验证", "verification"),
+    "impact": ("影响", "impact"),
+}
+REQUIRED_RETROSPECTIVE_FIELDS = ("scenario", "root_cause", "rule", "verification")
+SENSITIVE_EVIDENCE_PATTERN = re.compile(
+    r"(?:sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{16,}|BEGIN\s+(?:RSA|OPENSSH|EC)\s+PRIVATE\s+KEY|(?:api[_ -]?key|token|password|cookie)\s*[:=]\s*\S+)",
+    re.I,
+)
 
 
 def die(message: str) -> None:
@@ -166,6 +181,206 @@ def learning_portfolio(args: argparse.Namespace) -> None:
     }
     target = Path(args.output).expanduser().resolve()
     write_json(target, payload)
+    print(target)
+
+
+def retrospective_files(root: Path) -> list[Path]:
+    files = []
+    for path in root.rglob("*.md"):
+        relative = path.relative_to(root)
+        if any(part in DISCOVERY_SKIPS for part in relative.parts):
+            continue
+        if path.name in RETROSPECTIVE_NAMES or "retrospective" in relative.as_posix().lower():
+            files.append(path)
+    return sorted(set(files))
+
+
+def parse_labeled_bullets(body: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    current: str | None = None
+    for line in body.splitlines():
+        stripped = line.strip()
+        bullet = re.match(r"^[-*]\s*(?:\*\*)?([^：:]+)(?:\*\*)?[：:]\s*(.*)$", stripped)
+        if bullet:
+            label = bullet.group(1).strip().lower()
+            current = next((key for key, aliases in RETROSPECTIVE_LABELS.items() if label in aliases), None)
+            if current:
+                fields[current] = bullet.group(2).strip()
+            continue
+        if current and stripped and not stripped.startswith("#"):
+            fields[current] = (fields[current] + " " + stripped).strip()
+    return fields
+
+
+def retrospective_sections(text: str) -> list[tuple[str, str]]:
+    matches = list(re.finditer(r"^##\s+(.+?)\s*$", text, re.M))
+    sections = []
+    for index, match in enumerate(matches):
+        title = match.group(1).strip()
+        if title.lower() in {"已证实事实", "影响", "预防动作", "是否升级为全局经验"}:
+            continue
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        sections.append((title, text[match.end():end].strip()))
+    if sections:
+        return sections
+    title = next((line[2:].strip() for line in text.splitlines() if line.startswith("# ")), "Untitled retrospective")
+    return [(title, text)] if parse_labeled_bullets(text) else []
+
+
+def normalized_fingerprint(value: str) -> str:
+    compact = re.sub(r"[^\w\u4e00-\u9fff]+", "", value.lower())
+    return hashlib.sha256(compact.encode("utf-8")).hexdigest()
+
+
+def redact_sensitive_evidence(value: str) -> tuple[str, bool]:
+    detected = bool(SENSITIVE_EVIDENCE_PATTERN.search(value))
+    return SENSITIVE_EVIDENCE_PATTERN.sub("[REDACTED]", value), detected
+
+
+def load_learning_registry(path: Path, owner: str) -> dict:
+    if not path.exists():
+        return {"schemaVersion": 1, "owner": owner, "candidates": [], "runs": []}
+    registry = json.loads(path.read_text(encoding="utf-8"))
+    if registry.get("schemaVersion") != 1 or registry.get("owner") != owner:
+        die("learning registry schema or owner mismatch")
+    if not isinstance(registry.get("candidates"), list) or not isinstance(registry.get("runs"), list):
+        die("invalid learning registry structure")
+    return registry
+
+
+def learning_harvest(args: argparse.Namespace) -> None:
+    roots = [project(value) for value in args.project]
+    registry_path = Path(args.registry).expanduser().resolve()
+    registry = load_learning_registry(registry_path, args.owner)
+    existing = {item["sourceFingerprint"]: item for item in registry["candidates"]}
+    seen: set[str] = set()
+    added = updated = 0
+    source_files = source_sections = 0
+    for root in roots:
+        origin = run_git(root, "remote", "get-url", "origin", check=False)
+        if github_origin_owner(origin or "") != args.owner:
+            die(f"project origin is not owned by {args.owner}: {root}")
+        for source in retrospective_files(root):
+            source_files += 1
+            relative = source.relative_to(root).as_posix()
+            source_text = source.read_text(encoding="utf-8", errors="replace")
+            for title, body in retrospective_sections(source_text):
+                source_sections += 1
+                fields = parse_labeled_bullets(body)
+                safe_excerpt, sensitive = redact_sensitive_evidence(body[: args.excerpt_chars])
+                safe_fields = {key: redact_sensitive_evidence(value)[0] for key, value in fields.items()}
+                source_key = f"{origin}\n{relative}\n{title}"
+                source_fingerprint = hashlib.sha256(source_key.encode("utf-8")).hexdigest()
+                content_fingerprint = hashlib.sha256((title + "\n" + body).encode("utf-8")).hexdigest()
+                missing = [name for name in REQUIRED_RETROSPECTIVE_FIELDS if not fields.get(name)]
+                candidate = {
+                    "id": "lrn-" + source_fingerprint[:16],
+                    "title": title,
+                    "project": root.name,
+                    "projectPath": str(root),
+                    "origin": origin,
+                    "sourcePath": relative,
+                    "sourceFingerprint": source_fingerprint,
+                    "contentFingerprint": content_fingerprint,
+                    "ruleFingerprint": normalized_fingerprint(safe_fields.get("rule") or title),
+                    "fields": safe_fields,
+                    "missingFields": missing,
+                    "ownerCorrectionPresent": bool(safe_fields.get("owner_correction")),
+                    "status": "blocked_sensitive" if sensitive else "needs_completion" if missing else "ready_for_review",
+                    "sensitiveEvidenceDetected": sensitive,
+                    "sourceExcerpt": safe_excerpt,
+                }
+                previous = existing.get(source_fingerprint)
+                if previous:
+                    if previous.get("contentFingerprint") == content_fingerprint:
+                        candidate = previous
+                    else:
+                        candidate["reviewHistory"] = previous.get("reviewHistory", [])
+                        candidate["status"] = "blocked_sensitive" if sensitive else "needs_re_review" if not missing else "needs_completion"
+                        updated += 1
+                else:
+                    added += 1
+                existing[source_fingerprint] = candidate
+                seen.add(source_fingerprint)
+    registry["candidates"] = sorted(existing.values(), key=lambda item: (item["origin"], item["sourcePath"], item["title"]))
+    counts = Counter(item["status"] for item in registry["candidates"])
+    run = {
+        "recordedAt": timestamp(), "projects": [str(item) for item in roots],
+        "sourceFiles": source_files, "sourceSections": source_sections,
+        "added": added, "updated": updated, "unchanged": source_sections - added - updated,
+        "statusCounts": dict(counts),
+    }
+    registry["runs"].append(run)
+    registry["updatedAt"] = run["recordedAt"]
+    write_json(registry_path, registry)
+    print(json.dumps(run, ensure_ascii=False, indent=2))
+
+
+def registry_candidate(registry: dict, candidate_id: str) -> dict:
+    candidate = next((item for item in registry["candidates"] if item["id"] == candidate_id), None)
+    if not candidate:
+        die(f"unknown learning candidate: {candidate_id}")
+    return candidate
+
+
+def learning_review(args: argparse.Namespace) -> None:
+    registry_path = Path(args.registry).expanduser().resolve()
+    registry = load_learning_registry(registry_path, args.owner)
+    candidate = registry_candidate(registry, args.candidate_id)
+    if candidate["status"] not in {"ready_for_review", "needs_re_review"}:
+        die(f"candidate is not reviewable: {candidate['status']}")
+    supporting = [candidate]
+    for candidate_id in args.supporting_id:
+        supporting.append(registry_candidate(registry, candidate_id))
+    unique_origins = {item["origin"] for item in supporting}
+    high_impact_owner_correction = args.owner_corrected and args.impact == "high" and candidate.get("ownerCorrectionPresent")
+    if args.decision == "promote" and len(unique_origins) < 2 and not high_impact_owner_correction:
+        die("promotion requires two source origins, or an explicit high-impact owner correction present in source evidence")
+    if args.decision == "promote" and (not args.rule.strip() or not args.verification.strip() or not args.scope.strip()):
+        die("promotion requires rule, scope, and verification")
+    now = timestamp()
+    review = {
+        "reviewedAt": now, "reviewer": args.reviewer, "decision": args.decision,
+        "reason": args.reason, "impact": args.impact, "scope": args.scope,
+        "rule": args.rule, "verification": args.verification,
+        "supportingCandidateIds": [item["id"] for item in supporting],
+        "sourceOrigins": sorted(unique_origins),
+        "ownerCorrected": bool(args.owner_corrected),
+    }
+    candidate.setdefault("reviewHistory", []).append(review)
+    candidate["review"] = review
+    candidate["status"] = {"promote": "approved_for_profile", "keep-project": "project_only", "reject": "rejected"}[args.decision]
+    registry["updatedAt"] = now
+    write_json(registry_path, registry)
+    print(json.dumps({"id": candidate["id"], "status": candidate["status"], "review": review}, ensure_ascii=False, indent=2))
+
+
+def learning_publish(args: argparse.Namespace) -> None:
+    registry_path = Path(args.registry).expanduser().resolve()
+    registry = load_learning_registry(registry_path, args.owner)
+    candidate = registry_candidate(registry, args.candidate_id)
+    profile = project(args.profile)
+    target = profile / "LEARNINGS.md"
+    if not target.is_file():
+        die(f"missing shared learning file: {target}")
+    marker = f"<!-- xds-learning:{candidate['id']} -->"
+    current = target.read_text(encoding="utf-8")
+    if candidate.get("status") == "published" and marker in current:
+        print(f"Already published: {candidate['id']}")
+        return
+    if candidate.get("status") != "approved_for_profile" or not candidate.get("review"):
+        die("only reviewed approved_for_profile candidates can be published")
+    if marker in current:
+        die("Profile contains the candidate marker but registry is not published; reconcile state manually")
+    review = candidate["review"]
+    evidence = ", ".join(f"{item['origin']}:{item['sourcePath']}" for item in [registry_candidate(registry, value) for value in review["supportingCandidateIds"]])
+    entry = f"""\n{marker}\n### {candidate['title']}\n\n- 分类：工程 / 协作\n- 规则：{review['rule']}\n- 证据：{evidence}\n- 适用范围：{review['scope']}\n- 验证：{review['verification']}\n- 最后验证：{review['reviewedAt'][:10]}\n"""
+    target.write_text(current.rstrip() + "\n" + entry, encoding="utf-8")
+    candidate["status"] = "published"
+    candidate["publishedAt"] = timestamp()
+    candidate["publishedTarget"] = str(target)
+    registry["updatedAt"] = candidate["publishedAt"]
+    write_json(registry_path, registry)
     print(target)
 
 
@@ -777,6 +992,56 @@ jobs:
     print(weekly_workflow)
 
 
+def personal_learning_automation_path(codex_home: Path) -> tuple[Path, int]:
+    automations_root = codex_home / "automations"
+    matches = []
+    if automations_root.is_dir():
+        for path in automations_root.glob("*/automation.toml"):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if 'id = "weekly-personal-dev-system"' in text or 'name = "每周个人开发系统回顾"' in text:
+                matches.append(path)
+    if len(matches) > 1:
+        die("multiple personal learning automations exist; review duplicates before ensuring")
+    return (matches[0] if matches else automations_root / "weekly-personal-dev-system" / "automation.toml", len(matches))
+
+
+def automation_learning_ensure(args: argparse.Namespace) -> None:
+    workspace = project(args.workspace)
+    codex_home = Path(args.codex_home).expanduser().resolve()
+    prompt_path = Path(__file__).resolve().parents[1] / "automations" / "weekly-personal-dev-system.prompt.md"
+    if not prompt_path.is_file():
+        die(f"missing versioned automation prompt: {prompt_path}")
+    target, existing_count = personal_learning_automation_path(codex_home)
+    previous = target.read_text(encoding="utf-8") if target.exists() else ""
+    created_match = re.search(r"^created_at\s*=\s*(\d+)$", previous, re.M)
+    now = int(time.time() * 1000)
+    created_at = int(created_match.group(1)) if created_match else now
+    target.parent.mkdir(parents=True, exist_ok=True)
+    prompt = prompt_path.read_text(encoding="utf-8")
+    target.write_text("\n".join([
+        "version = 1",
+        'id = "weekly-personal-dev-system"',
+        'kind = "cron"',
+        'name = "每周个人开发系统回顾"',
+        f"prompt = {json.dumps(prompt, ensure_ascii=False)}",
+        'status = "ACTIVE"',
+        'rrule = "FREQ=WEEKLY;BYDAY=MO;BYHOUR=8;BYMINUTE=0"',
+        'model = "gpt-5.6-terra"',
+        'reasoning_effort = "high"',
+        'execution_environment = "local"',
+        f"target = {{ type = \"project\", project_id = {json.dumps(str(workspace))} }}",
+        f"cwds = [{json.dumps(str(workspace))}]",
+        f"created_at = {created_at}",
+        f"updated_at = {now}",
+        "",
+    ]), encoding="utf-8")
+    print(json.dumps({
+        "status": "updated" if existing_count else "created",
+        "automation": str(target), "workspace": str(workspace),
+        "id": "weekly-personal-dev-system", "duplicateCount": 0,
+    }, ensure_ascii=False, indent=2))
+
+
 def weekly_review(args: argparse.Namespace) -> None:
     root = project(args.project)
     config = load(root)
@@ -972,11 +1237,15 @@ def main() -> None:
     create_parser = workspace_sub.add_parser("create"); create_parser.add_argument("--project", required=True); create_parser.add_argument("--branch", required=True); create_parser.add_argument("--base", default="origin/main"); create_parser.set_defaults(func=workspace_create)
     automation_parser = sub.add_parser("automation"); automation_sub = automation_parser.add_subparsers(required=True)
     install_parser = automation_sub.add_parser("install"); install_parser.add_argument("--project", required=True); install_parser.add_argument("--force", action="store_true"); install_parser.set_defaults(func=automation_install)
+    learning_automation_parser = automation_sub.add_parser("ensure-learning"); learning_automation_parser.add_argument("--workspace", required=True); learning_automation_parser.add_argument("--codex-home", default=os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))); learning_automation_parser.set_defaults(func=automation_learning_ensure)
     review_parser = sub.add_parser("weekly-review"); review_parser.add_argument("--project", required=True); review_parser.add_argument("--date", default=dt.date.today().isoformat()); review_parser.set_defaults(func=weekly_review)
     acceptance_parser = sub.add_parser("acceptance"); acceptance_parser.add_argument("--project", required=True); acceptance_parser.add_argument("--date", default=dt.date.today().isoformat()); acceptance_parser.set_defaults(func=acceptance)
     learning_parser = sub.add_parser("learning"); learning_sub = learning_parser.add_subparsers(required=True)
     candidate_parser = learning_sub.add_parser("candidate"); candidate_parser.add_argument("--project", required=True); candidate_parser.add_argument("--date", default=dt.date.today().isoformat()); candidate_parser.add_argument("--force", action="store_true"); candidate_parser.set_defaults(func=learning_candidate)
     portfolio_parser = learning_sub.add_parser("portfolio"); portfolio_parser.add_argument("--owner", required=True); portfolio_parser.add_argument("--project", action="append", required=True); portfolio_parser.add_argument("--output", required=True); portfolio_parser.set_defaults(func=learning_portfolio)
+    harvest_parser = learning_sub.add_parser("harvest"); harvest_parser.add_argument("--owner", required=True); harvest_parser.add_argument("--project", action="append", required=True); harvest_parser.add_argument("--registry", required=True); harvest_parser.add_argument("--excerpt-chars", type=int, default=1200); harvest_parser.set_defaults(func=learning_harvest)
+    review_learning_parser = learning_sub.add_parser("review"); review_learning_parser.add_argument("--owner", required=True); review_learning_parser.add_argument("--registry", required=True); review_learning_parser.add_argument("--candidate-id", required=True); review_learning_parser.add_argument("--supporting-id", action="append", default=[]); review_learning_parser.add_argument("--decision", choices=["promote", "keep-project", "reject"], required=True); review_learning_parser.add_argument("--reviewer", required=True); review_learning_parser.add_argument("--reason", required=True); review_learning_parser.add_argument("--impact", choices=["low", "medium", "high"], required=True); review_learning_parser.add_argument("--scope", default=""); review_learning_parser.add_argument("--rule", default=""); review_learning_parser.add_argument("--verification", default=""); review_learning_parser.add_argument("--owner-corrected", action="store_true"); review_learning_parser.set_defaults(func=learning_review)
+    publish_parser = learning_sub.add_parser("publish"); publish_parser.add_argument("--owner", required=True); publish_parser.add_argument("--registry", required=True); publish_parser.add_argument("--candidate-id", required=True); publish_parser.add_argument("--profile", required=True); publish_parser.set_defaults(func=learning_publish)
     promote_parser = learning_sub.add_parser("promote"); promote_parser.add_argument("--candidate", required=True); promote_parser.add_argument("--profile", required=True); promote_parser.add_argument("--title", required=True); promote_parser.add_argument("--category", required=True); promote_parser.add_argument("--rule", required=True); promote_parser.add_argument("--scope", required=True); promote_parser.add_argument("--evidence", required=True); promote_parser.add_argument("--date", default=dt.date.today().isoformat()); promote_parser.set_defaults(func=learning_promote)
     preview_parser = sub.add_parser("preview"); preview_sub = preview_parser.add_subparsers(required=True)
     start_parser = preview_sub.add_parser("start"); start_parser.add_argument("--project", required=True); start_parser.add_argument("--name"); start_parser.add_argument("--command"); start_parser.add_argument("--data-namespace"); start_parser.set_defaults(func=preview_start)

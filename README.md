@@ -116,6 +116,44 @@ bin/xixi-dev-system goal lint \
 The lint checks structure; it never substitutes for business verification or
 the completion audit described by the Goal.
 
+## Retrospective ingestion
+
+The system can harvest structured candidates from `错误复盘.md`,
+`RETROSPECTIVE.md`, and `doc/retrospectives/` without modifying source
+projects:
+
+```bash
+bin/xixi-dev-system learning harvest --owner xixinikl \
+  --project /path/to/project \
+  --registry /path/to/project/.xds/learning/registry.json
+```
+
+Harvesting preserves source evidence, records stable source and content
+fingerprints, marks missing fields, updates changed entries to
+`needs_re_review`, and is idempotent when content is unchanged. An empty
+retrospective set is a valid zero state.
+
+Promotion is intentionally two-step. `learning review` requires either support
+from two different origins or an explicit high-impact owner correction present
+in source evidence. `learning publish` accepts only reviewed
+`approved_for_profile` candidates and uses the candidate id to prevent duplicate
+Profile entries. Automated harvesting never implies approval.
+
+## Personal learning automation
+
+When this repository is cloned or opened, Agents follow `AGENTS.md` and ensure
+the versioned personal learning automation exists:
+
+```bash
+bin/xixi-dev-system automation ensure-learning \
+  --workspace /path/to/local/workspace
+```
+
+The command uses the stable id `weekly-personal-dev-system`, updates an existing
+instance, preserves its creation time, and refuses to proceed when duplicates
+already exist. `bootstrap-new-machine.sh` invokes the same command after install,
+so clone, restore, and upgrade do not create parallel automation variants.
+
 ## Rules
 
 - GitHub commits, branch heads, and open PRs are the collaboration fact source.
