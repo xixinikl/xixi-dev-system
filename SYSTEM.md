@@ -11,6 +11,17 @@ The only user-facing system name is `xixi-dev-system`.
 | `.xixi-dev-system.json` | Per-project adapter contract. |
 | `.xds/` | Generated local runtime state, reports, logs, and worktrees. |
 
+## Goal state authority
+
+`xixi-dev-system goal` is the single durable authority for long-running task
+state. A Goal contains ordered Tasks, execution Runs, Evidence, and Blockers.
+The CLI derives current task, next task, terminal status, and progress. Reports
+and dashboards may render this state but must not maintain a parallel status.
+
+The host Codex Goal and plan provide the live progress surface. Agents must
+mirror each start, verify, block, and fail transition into `.xds/goals/` so a
+new thread can continue without reconstructing state from chat.
+
 Existing profile, acceptance factory, and quality hub repositories are internal
 dependencies or display surfaces, not separate commands the user must remember.
 

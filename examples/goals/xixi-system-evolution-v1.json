@@ -1,0 +1,42 @@
+{
+  "id": "xixi-system-evolution-v1",
+  "title": "Xixi personal dev system evidence evolution",
+  "objective": "Use local xixinikl-owned projects as evidence sources to improve xixi-dev-system and xixi-agent-profile, including reusable CDS-style Goal authoring, automated learning promotion, verification, and GitHub publication.",
+  "tasks": [
+    {
+      "id": "E1",
+      "title": "Audit local repository ownership and project evidence",
+      "acceptance": "The inventory contains the five local working copies (four unique origins) whose origin belongs to xixinikl, and both gongtu-project working copies plus canvas-storm have traceable evidence indexes without reading remote repository content."
+    },
+    {
+      "id": "E2",
+      "title": "Classify project lessons and promotion candidates",
+      "acceptance": "Every candidate records source evidence, repeated pattern, proposed scope, enforcement mode, limitation or counterexample, and verification.",
+      "dependsOn": ["E1"]
+    },
+    {
+      "id": "E3",
+      "title": "Implement system learning and CDS Goal automation",
+      "acceptance": "xixi-dev-system can discover owner-scoped local projects, produce evidence-backed learning candidates, and validate the required CDS Goal structure without modifying source projects.",
+      "dependsOn": ["E2"]
+    },
+    {
+      "id": "E4",
+      "title": "Promote reusable rules and templates into the Profile",
+      "acceptance": "xixi-agent-profile exposes the promoted rules, CDS Goal template, boundaries, and maintenance path through its normal start and workflow indexes.",
+      "dependsOn": ["E3"]
+    },
+    {
+      "id": "E5",
+      "title": "Verify the complete learning promotion flow",
+      "acceptance": "Automated tests and temporary-directory exercises pass; read-only exercises against both source projects prove owner scoping, evidence traceability, and no source-project mutation.",
+      "dependsOn": ["E4"]
+    },
+    {
+      "id": "E6",
+      "title": "Publish both system repositories and complete the audit",
+      "acceptance": "xixi-dev-system and xixi-agent-profile each have an intentional verified commit pushed to GitHub, and the completion audit maps every explicit requirement to direct evidence.",
+      "dependsOn": ["E5"]
+    }
+  ]
+}

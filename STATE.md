@@ -11,6 +11,9 @@
 - Verified: disposable Git repository produced a multi-branch update report;
   preview received an unused localhost port and data namespace, served HTTP, and
   stopped cleanly.
+- Goal kernel v1 in progress: bounded Goal specs, dependency-ordered Tasks,
+  execution Runs, evidence-gated verification, blockers, and derived progress
+  are implemented on `cx/goal-state-kernel-v1` and covered by tests.
 - Gongtu: adapter and isolated SQLite namespace configuration are in PR #10;
   runtime start is correctly blocked until uv prepares Python 3.11.
 - Not yet complete: scheduled ledger/report publishing, scoped acceptance,

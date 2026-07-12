@@ -50,6 +50,17 @@ class OnboardTests(unittest.TestCase):
             self.assertEqual(detected["startCommand"], "pnpm run dev")
             self.assertEqual(detected["doctorCommand"], "pnpm run verify")
 
+    def test_project_doctor_is_the_preferred_quality_entry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "package.json").write_text(json.dumps({
+                "scripts": {"dev": "vite", "doctor": "node tools/doctor.mjs", "test": "node --test"}
+            }), encoding="utf-8")
+
+            detected = xds.detect_adapter(root)
+
+            self.assertEqual(detected["doctorCommand"], "npm run doctor")
+
     def test_profile_sync_clones_and_fast_forwards(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

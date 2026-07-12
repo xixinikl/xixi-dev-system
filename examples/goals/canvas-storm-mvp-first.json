@@ -1,0 +1,36 @@
+{
+  "id": "canvas-storm-mvp-first",
+  "title": "CanvasStorm MVP-first direction workflow",
+  "objective": "Make the primary flow unambiguous: project idea, minimum MVP, direction selection, same-layer expansion, then deeper exploration.",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Freeze the product flow contract",
+      "acceptance": "The spec names the five user steps and distinguishes same-layer expansion from entering the next layer."
+    },
+    {
+      "id": "T2",
+      "title": "Define the AI response contract",
+      "acceptance": "The response schema separates minimum MVP, exploration directions, and child functions.",
+      "dependsOn": ["T1"]
+    },
+    {
+      "id": "T3",
+      "title": "Implement the MVP-first application flow",
+      "acceptance": "A user can start from an idea, see the minimum MVP, choose a direction, and generate nodes under it.",
+      "dependsOn": ["T2"]
+    },
+    {
+      "id": "T4",
+      "title": "Verify canvas clarity and interaction semantics",
+      "acceptance": "Desktop and mobile browser evidence shows readable center content, no node overlap, and distinct same-layer and next-layer actions.",
+      "dependsOn": ["T3"]
+    },
+    {
+      "id": "T5",
+      "title": "Publish PR evidence",
+      "acceptance": "Tests, preview URL, screenshots, risks, and remaining debt are attached to the PR.",
+      "dependsOn": ["T4"]
+    }
+  ]
+}

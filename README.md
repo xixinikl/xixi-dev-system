@@ -64,11 +64,57 @@ bin/xixi-dev-system workspace create --project /path/to/project --branch feature
 bin/xixi-dev-system preview start --project /path/to/project
 ```
 
+Discover only local working copies owned by a GitHub account, without reading
+remote repository contents, then build a read-only evidence portfolio for the
+projects deliberately selected as learning sources:
+
+```bash
+bin/xixi-dev-system projects discover --owner xixinikl \
+  --root /path/to/workspace --output /tmp/projects.json
+bin/xixi-dev-system learning portfolio --owner xixinikl \
+  --project /path/to/project-a --project /path/to/project-b \
+  --output /tmp/evidence-portfolio.json
+```
+
 The installed `xixi-dev-system` skill is the agent-facing entry point. The CLI
 is the deterministic implementation behind it.
 
+## Standard goals
+
+Long-running work uses one bounded Goal with dependency-ordered tasks and
+evidence-gated progress. The visible Codex Goal is the active execution view;
+`.xds/goals/` is the durable project state used across threads.
+
+```bash
+xixi-dev-system goal create --project . \
+  --spec /path/to/goal.json
+xixi-dev-system goal show --project . --goal canvas-storm-mvp-first
+xixi-dev-system goal task start --project . \
+  --goal canvas-storm-mvp-first --task T1
+xixi-dev-system goal task verify --project . \
+  --goal canvas-storm-mvp-first --task T1 \
+  --evidence-type file --evidence "docs/spec.md"
+```
+
+Progress is calculated only from verified tasks. Dependencies, one-running-task
+discipline, blockers, runs, and evidence are stored in the same state file.
+The contract is documented by `system/goal-state-v1.schema.json`; a complete
+CanvasStorm planning example lives in `examples/goals/`.
+
 For a plain-Chinese explanation of which repository does what, read
 [`docs/repository-map.zh-CN.md`](docs/repository-map.zh-CN.md).
+
+For long-running CDS-style Goals, keep a human-readable authoritative document
+beside the executable JSON and lint both before starting:
+
+```bash
+bin/xixi-dev-system goal lint \
+  --document docs/goals/example.md \
+  --spec examples/goals/example.json
+```
+
+The lint checks structure; it never substitutes for business verification or
+the completion audit described by the Goal.
 
 ## Rules
 
