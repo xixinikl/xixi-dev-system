@@ -8,6 +8,10 @@ description: Route every Xixi coding task through the unified development system
 Use this as the single entry point. Do not ask the user to choose among profile,
 acceptance factory, dashboard, or preview tools.
 
+Resolve the deterministic command as
+`${CODEX_HOME:-$HOME/.codex}/bin/xixi-dev-system`. Do not depend on the user's
+shell `PATH` containing the command.
+
 1. Locate `.xixi-dev-system.json`. If absent, run `xixi-dev-system onboard`
    from the project root. It auto-detects common project facts and never
    overwrites an existing adapter. Only ask for values detection cannot safely

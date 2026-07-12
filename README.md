@@ -6,6 +6,18 @@ promotion without making the user remember separate repositories.
 
 ## One command
 
+Install once on a new computer:
+
+```bash
+git clone https://github.com/xixinikl/xixi-dev-system.git
+cd xixi-dev-system
+bin/install-local.sh
+```
+
+Codex then uses `~/.codex/bin/xixi-dev-system` as the stable command path. To
+update an existing installation, pull this repository and run
+`bin/install-local.sh --upgrade`; it replaces only xixi-dev-system-owned files.
+
 ```bash
 xixi-dev-system onboard
 ```
