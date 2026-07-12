@@ -4,15 +4,27 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 SKILL_TARGET="$CODEX_HOME/skills/xixi-dev-system"
+TOOL_TARGET="$CODEX_HOME/tools/xixi-dev-system"
+COMMAND_TARGET="$CODEX_HOME/bin/xixi-dev-system"
 AGENTS_TARGET="$CODEX_HOME/AGENTS.md"
+UPGRADE="${1:-}"
 
-if [[ -e "$SKILL_TARGET" ]]; then
-  echo "Refusing to overwrite existing skill: $SKILL_TARGET" >&2
+if [[ -e "$SKILL_TARGET" || -e "$TOOL_TARGET" || -e "$COMMAND_TARGET" ]] && [[ "$UPGRADE" != "--upgrade" ]]; then
+  echo "Existing installation found. Re-run with --upgrade to replace only xixi-dev-system files." >&2
   exit 1
 fi
 
-mkdir -p "$CODEX_HOME/skills"
+if [[ "$UPGRADE" == "--upgrade" ]]; then
+  rm -rf "$SKILL_TARGET" "$TOOL_TARGET"
+  rm -f "$COMMAND_TARGET"
+fi
+
+mkdir -p "$CODEX_HOME/skills" "$CODEX_HOME/tools" "$CODEX_HOME/bin"
 cp -R "$ROOT/skills/xixi-dev-system" "$SKILL_TARGET"
+mkdir -p "$TOOL_TARGET/bin" "$TOOL_TARGET/scripts"
+cp "$ROOT/bin/xixi-dev-system" "$TOOL_TARGET/bin/xixi-dev-system"
+cp "$ROOT/scripts/xds.py" "$TOOL_TARGET/scripts/xds.py"
+ln -s "$TOOL_TARGET/bin/xixi-dev-system" "$COMMAND_TARGET"
 
 MARKER_START="# xixi-dev-system:start"
 MARKER_END="# xixi-dev-system:end"
@@ -28,4 +40,5 @@ EOF
 fi
 
 echo "Installed xixi-dev-system skill into $SKILL_TARGET"
+echo "Installed command runner at $COMMAND_TARGET"
 echo "Added global routing rule to $AGENTS_TARGET"
