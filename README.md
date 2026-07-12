@@ -17,6 +17,8 @@ bin/install-local.sh
 Codex then uses `~/.codex/bin/xixi-dev-system` as the stable command path. To
 update an existing installation, pull this repository and run
 `bin/install-local.sh --upgrade`; it replaces only xixi-dev-system-owned files.
+At the start of coding work, the entry skill runs `profile sync` so the latest
+personal preferences are read from GitHub without a separate user command.
 
 ```bash
 xixi-dev-system onboard

@@ -19,6 +19,7 @@ from pathlib import Path
 
 
 CONFIG = ".xixi-dev-system.json"
+PROFILE_REPOSITORY = "https://github.com/xixinikl/xixi-agent-profile.git"
 
 
 def die(message: str) -> None:
@@ -102,6 +103,23 @@ def detect_git_value(root: Path, *args: str) -> str:
     if run_git(root, "rev-parse", "--is-inside-work-tree", check=False) != "true":
         return ""
     return run_git(root, *args, check=False)
+
+
+def profile_sync(args: argparse.Namespace) -> None:
+    codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
+    target = Path(args.target).expanduser().resolve() if args.target else codex_home / "xixi-dev-system" / "profile"
+    repository = args.repo or PROFILE_REPOSITORY
+    if target.exists():
+        if not (target / ".git").is_dir():
+            die(f"profile target exists but is not a Git repository: {target}")
+        run_git(target, "fetch", "origin", "--prune")
+        run_git(target, "merge", "--ff-only", "@{u}")
+    else:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        result = subprocess.run(["git", "clone", repository, str(target)], text=True, capture_output=True)
+        if result.returncode:
+            die(result.stderr.strip() or "profile clone failed")
+    print(target)
 
 
 def onboard(args: argparse.Namespace) -> None:
@@ -580,6 +598,8 @@ def main() -> None:
     onboard_parser.add_argument("--focus-author", action="append", default=[])
     onboard_parser.add_argument("--risk-path", action="append", default=["auth", "payment", "migration", "deploy", "secret"])
     onboard_parser.set_defaults(func=onboard)
+    profile_parser = sub.add_parser("profile"); profile_sub = profile_parser.add_subparsers(required=True)
+    sync_parser = profile_sub.add_parser("sync"); sync_parser.add_argument("--target"); sync_parser.add_argument("--repo"); sync_parser.set_defaults(func=profile_sync)
     doctor_parser = sub.add_parser("doctor"); doctor_parser.add_argument("--project", required=True); doctor_parser.set_defaults(func=doctor)
     updates_parser = sub.add_parser("updates"); updates_parser.add_argument("--project", required=True); updates_parser.add_argument("--date", default=dt.date.today().isoformat()); updates_parser.set_defaults(func=updates)
     runtime_parser = sub.add_parser("runtime"); runtime_sub = runtime_parser.add_subparsers(required=True)

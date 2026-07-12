@@ -50,6 +50,32 @@ class OnboardTests(unittest.TestCase):
             self.assertEqual(detected["startCommand"], "pnpm run dev")
             self.assertEqual(detected["doctorCommand"], "pnpm run verify")
 
+    def test_profile_sync_clones_and_fast_forwards(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            remote = base / "profile.git"
+            seed = base / "seed"
+            target = base / "cache"
+            subprocess.run(["git", "init", "--bare", remote], check=True, capture_output=True)
+            subprocess.run(["git", "init", "-b", "main", seed], check=True, capture_output=True)
+            subprocess.run(["git", "-C", seed, "config", "user.email", "test@example.com"], check=True)
+            subprocess.run(["git", "-C", seed, "config", "user.name", "Test"], check=True)
+            (seed / "PREFERENCES.md").write_text("fresh", encoding="utf-8")
+            subprocess.run(["git", "-C", seed, "add", "PREFERENCES.md"], check=True)
+            subprocess.run(["git", "-C", seed, "commit", "-m", "seed"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", seed, "remote", "add", "origin", str(remote)], check=True)
+            subprocess.run(["git", "-C", seed, "push", "-u", "origin", "main"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", remote, "symbolic-ref", "HEAD", "refs/heads/main"], check=True)
+
+            args = argparse.Namespace(target=str(target), repo=str(remote))
+            xds.profile_sync(args)
+            (seed / "PREFERENCES.md").write_text("fresh and clear", encoding="utf-8")
+            subprocess.run(["git", "-C", seed, "commit", "-am", "update"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", seed, "push"], check=True, capture_output=True)
+            xds.profile_sync(args)
+
+            self.assertEqual((target / "PREFERENCES.md").read_text(encoding="utf-8"), "fresh and clear")
+
 
 if __name__ == "__main__":
     unittest.main()
