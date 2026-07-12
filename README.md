@@ -1,5 +1,15 @@
 # Xixi Dev System
 
+## Repository identity
+
+| Item | Meaning |
+|---|---|
+| Type | System entry repository: the only user-facing gateway for project onboarding, runtime, reports, preferences, and learning promotion. |
+| Works with | Syncs `xixi-agent-profile`, enforces `standard-project-workflow`, invokes acceptance capabilities, and publishes conclusions to `quality-hub`. |
+| Open it routinely? | Only for first-time installation or system maintenance; normal work is routed automatically by the installed Skill. |
+| Status | Active and authoritative for the unified personal development system. |
+| Restore on a new computer | Clone this repository and run `bin/install-local.sh`; the installed entry then restores the command and personal Profile. |
+
 One entry point for Xixi's Codex projects. It routes project onboarding,
 collaboration-update reports, isolated previews, quality evidence, and memory
 promotion without making the user remember separate repositories.
