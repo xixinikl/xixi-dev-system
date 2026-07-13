@@ -39,7 +39,7 @@
 | [x] | RT2 Xixi 运行合同 | live/snapshot、额外端口、数据与日志状态有测试 | 24 个系统测试通过；dashboard API 返回 `previewMode/servicePorts/nodeVersion` |
 | [x] | RT3 思维风暴与码上冒险 | 自动刷新/HMR、动态 API、分支数据库有直接证据 | CanvasStorm 浏览器自动重载；Code Quest HMR、动态 API 和 SQLite 路径通过 |
 | [x] | RT4 公途 | 前端自动刷新；全栈隔离通过或形成合格阻塞报告 | 浏览器自动重载；同源 API 200；动态双端口；独立 SQLite；私有路径 404 |
-| [ ] | RT5 验收与发布 | 三项目 UI 和运行闭环通过；分仓 PR 可追踪 | 截图、测试汇总、PR URL、completion audit |
+| [x] | RT5 验收与发布 | 三项目 UI 和运行闭环通过；分仓 PR 可追踪 | 桌面/手机截图；测试汇总；四个 draft PR；completion audit |
 
 ## 验收记录
 
@@ -48,6 +48,7 @@
 - 码上冒险：`npm run verify` 通过（7 个测试文件、55 个测试及构建）；网页端口与 `API_PORT` 不同，SQLite 位于分支命名空间；修改 `src/App.tsx` 后 Vite HMR 生效。
 - 公途：专项实时预览测试 3/3 通过；浏览器修改前端后自动重载；后端修改后 `/api/health` 恢复 200；`.env`、`backend/main.py` 和 `.xds` 路径均返回 404。
 - 项目中心：桌面截图显示三个运行中的实时分支；390x844 下 `scrollWidth=innerWidth=390`，无横向溢出。
+- Draft PR：Xixi [#14](https://github.com/xixinikl/xixi-dev-system/pull/14)、CanvasStorm [#4](https://github.com/xixinikl/canvas-storm/pull/4)、Code Quest [#4](https://github.com/xixinikl/code-quest/pull/4)、Gongtu [#20](https://github.com/xixinikl/gongtu-project/pull/20)。
 
 ## 已知基线失败
 
@@ -93,14 +94,14 @@
 
 ## Completion Audit
 
-- [ ] 原始需求“正在开发也能实时预览”有真实文件改动触发证据。
-- [ ] live 与 snapshot 由工作目录事实推导，不由按钮文案猜测。
-- [ ] 三个项目都能从同一项目中心启动；失败项目有合格记录。
-- [ ] 端口不冲突；声明隔离的数据路径不相同。
-- [ ] 桌面和手机无横向溢出、按钮遮挡和状态歧义。
-- [ ] 系统及三个项目的相关测试通过，或失败被限定且可复现。
-- [ ] 原始脏工作副本内容未被清理、重置或误提交。
-- [ ] 每个发生代码变更的仓库有独立提交、远端分支和 PR 证据。
+- [x] 原始需求“正在开发也能实时预览”有真实文件改动触发证据。
+- [x] live 与 snapshot 由工作目录事实推导，不由按钮文案猜测。
+- [x] 三个项目都能从同一项目中心启动；失败项目有合格记录。
+- [x] 端口不冲突；声明隔离的数据路径不相同。
+- [x] 桌面和手机无横向溢出、按钮遮挡和状态歧义。
+- [x] 系统及三个项目的相关测试通过，或失败被限定且可复现。
+- [x] 原始脏工作副本内容未被清理、重置或误提交。
+- [x] 每个发生代码变更的仓库有独立提交、远端分支和 PR 证据。
 
 ## 开 Goal 目标文本
 
