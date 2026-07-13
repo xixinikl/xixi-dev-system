@@ -10,6 +10,7 @@ The only user-facing system name is `xixi-dev-system`.
 | `bin/xixi-dev-system` | Deterministic commands for projects and automation. |
 | `.xixi-dev-system.json` | Per-project adapter contract. |
 | `.xds/` | Generated local runtime state, reports, logs, and worktrees. |
+| `dashboard` | Local project-first view of branches and isolated preview instances. |
 
 ## Goal state authority
 
@@ -33,6 +34,11 @@ dependencies or display surfaces, not separate commands the user must remember.
    data namespace, then stores the PID and URL in `.xds/runtime/`.
 3. Daily reports are observations. Weekly review promotes only repeated or
    high-impact, evidenced rules into shared learning.
+4. Dashboard registration is local-machine state. It may contain absolute paths
+   and must remain under `~/.codex/xixi-dev-system/`, outside Git history.
+5. A branch preview must disclose whether it is namespace-isolated,
+   frontend-only, or intentionally sharing data. A reachable page is not by
+   itself evidence of full-stack isolation.
 
 `automation install` vendors the collector into `.xds-system/` and creates a
 daily GitHub Actions workflow. The workflow writes only an Actions summary and

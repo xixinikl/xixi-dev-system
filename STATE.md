@@ -20,6 +20,9 @@
   Profile publication are available on `cx/goal-state-kernel-v1`.
 - Automation restore implemented: repository `AGENTS.md`, install artifacts,
   and new-machine bootstrap converge on one versioned personal learning task.
+- Branch preview dashboard implemented on `cx/branch-preview-dashboard`: local
+  project registration, recent branch facts, worktree reuse/creation, dynamic
+  ports, data namespace disclosure, one-click start/open/stop, and responsive UI.
 - Gongtu: adapter and isolated SQLite namespace configuration are in PR #10;
   runtime start is correctly blocked until uv prepares Python 3.11.
 - Not yet complete: automatic PR merge policy, quality hub integration, and a

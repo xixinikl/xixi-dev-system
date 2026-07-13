@@ -64,6 +64,26 @@ bin/xixi-dev-system workspace create --project /path/to/project --branch feature
 bin/xixi-dev-system preview start --project /path/to/project
 ```
 
+## Project preview center
+
+Register the projects that should appear on this computer, then open one local
+page for project and branch previews. Machine-specific paths stay under
+`~/.codex/xixi-dev-system/` and are never committed to this repository.
+
+```bash
+bin/xixi-dev-system dashboard register \
+  --project /path/to/project --id project-id --name "Project name"
+bin/xixi-dev-system dashboard start --open
+```
+
+The dashboard reports the current checkout and recent local/remote branches.
+Starting a branch reuses its existing worktree when possible, otherwise creates
+a detached preview worktree. Every running preview receives a unique localhost
+port and `XDS_DATA_NAMESPACE`. Project adapters may declare or locally override
+the preview command and label the result as isolated, shared-data, or
+frontend-only; the dashboard displays that status instead of overstating the
+environment.
+
 Discover only local working copies owned by a GitHub account, without reading
 remote repository contents, then build a read-only evidence portfolio for the
 projects deliberately selected as learning sources:

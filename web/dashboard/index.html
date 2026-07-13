@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Xixi 项目预览</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Xixi 项目预览首页">
+        <span class="brand-mark">XI</span>
+        <span>项目预览</span>
+      </a>
+      <div class="topbar-status">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="projectCount">正在读取项目</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="page-heading" aria-labelledby="pageTitle">
+        <p class="kicker">WORKSPACE</p>
+        <h1 id="pageTitle">正在做的项目</h1>
+        <button class="icon-button" id="refreshButton" type="button" title="刷新项目状态" aria-label="刷新项目状态">↻</button>
+      </section>
+
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+      <section id="projectList" class="project-list" aria-label="项目列表">
+        <div class="loading-row"><span></span><span></span><span></span></div>
+      </section>
+    </main>
+
+    <template id="emptyTemplate">
+      <section class="empty-state">
+        <h2>还没有项目</h2>
+        <p>项目注册后会出现在这里。</p>
+      </section>
+    </template>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

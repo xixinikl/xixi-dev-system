@@ -1,0 +1,99 @@
+import json
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
+import dashboard_server as dashboard
+
+
+class DashboardTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.base = Path(self.directory.name)
+        self.root = self.base / "project"
+        self.root.mkdir()
+        subprocess.run(["git", "init", "-b", "main", self.root], check=True, capture_output=True)
+        subprocess.run(["git", "-C", self.root, "config", "user.email", "test@example.com"], check=True)
+        subprocess.run(["git", "-C", self.root, "config", "user.name", "Test"], check=True)
+        (self.root / "index.html").write_text("<h1>preview</h1>", encoding="utf-8")
+        self.adapter = {
+            "schemaVersion": 1,
+            "projectName": "demo",
+            "runtime": {
+                "startCommand": 'python3 -m http.server "$PORT" --bind 127.0.0.1',
+                "portEnvironment": "PORT",
+                "dataNamespaceEnvironment": "XDS_DATA_NAMESPACE",
+                "workingDirectory": ".",
+            },
+        }
+        (self.root / ".xixi-dev-system.json").write_text(json.dumps(self.adapter), encoding="utf-8")
+        subprocess.run(["git", "-C", self.root, "add", "."], check=True)
+        subprocess.run(["git", "-C", self.root, "commit", "-m", "initial"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", self.root, "branch", "feature/demo"], check=True)
+        self.registry = self.base / "registry.json"
+        self.runtime = self.base / "runtime"
+
+    def tearDown(self):
+        if self.runtime.is_dir():
+            for state_path in self.runtime.glob("*.json"):
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+                entry = {"id": state["projectId"]}
+                dashboard.stop_preview(entry, state["branch"], self.runtime)
+        self.directory.cleanup()
+
+    def test_register_and_report_branch_facts(self):
+        entry = dashboard.register_project(
+            self.root,
+            "演示项目",
+            project_id="demo",
+            description="测试分支预览",
+            registry_path=self.registry,
+        )
+        summary = dashboard.project_summary(entry, self.runtime)
+
+        self.assertEqual(summary["name"], "演示项目")
+        self.assertEqual(summary["currentBranch"]["name"], "main")
+        self.assertEqual({item["name"] for item in summary["branches"]}, {"main", "feature/demo"})
+        self.assertFalse(summary["dirty"])
+
+    def test_preview_uses_unique_port_and_namespace_per_branch(self):
+        entry = dashboard.register_project(self.root, "演示项目", project_id="demo", registry_path=self.registry)
+        main = dashboard.start_preview(entry, "main", self.runtime)
+        feature = dashboard.start_preview(entry, "feature/demo", self.runtime)
+
+        self.assertNotEqual(main["port"], feature["port"])
+        self.assertNotEqual(main["dataNamespace"], feature["dataNamespace"])
+        self.assertEqual(Path(main["worktree"]), self.root.resolve())
+        self.assertTrue(feature["detachedWorktree"])
+        self.assertTrue(Path(feature["worktree"]).is_dir())
+        self.assertEqual(dashboard.preview_state("demo", "main", self.runtime)["url"], main["url"])
+
+    def test_register_updates_existing_project_without_duplicates(self):
+        dashboard.register_project(self.root, "旧名称", project_id="demo", registry_path=self.registry)
+        dashboard.register_project(self.root, "新名称", project_id="demo", registry_path=self.registry)
+
+        registry = dashboard.load_registry(self.registry)
+        self.assertEqual(len(registry["projects"]), 1)
+        self.assertEqual(registry["projects"][0]["name"], "新名称")
+
+    def test_dependency_reuse_requires_matching_lockfile(self):
+        source_modules = self.root / "node_modules"
+        source_modules.mkdir()
+        (self.root / "package.json").write_text("{}", encoding="utf-8")
+        (self.root / "package-lock.json").write_text('{"lockfileVersion": 3}', encoding="utf-8")
+        branch_root = self.base / "branch"
+        branch_root.mkdir()
+        (branch_root / "package.json").write_text("{}", encoding="utf-8")
+        (branch_root / "package-lock.json").write_text('{"lockfileVersion": 3}', encoding="utf-8")
+
+        dashboard.prepare_dependencies(self.root, branch_root)
+
+        self.assertTrue((branch_root / "node_modules").is_symlink())
+        self.assertEqual((branch_root / "node_modules").resolve(), source_modules.resolve())
+
+
+if __name__ == "__main__":
+    unittest.main()
