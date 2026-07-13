@@ -1,0 +1,36 @@
+{
+  "id": "realtime-preview-v1",
+  "title": "Xixi realtime development previews",
+  "objective": "Upgrade the project preview center from isolated launch snapshots to truthful realtime development previews for the owner's active Gongtu, CanvasStorm, and Code Quest branches, with automatic frontend updates, branch-aware runtime labels, explicit data boundaries, and reproducible blocker evidence where legacy full-stack isolation cannot yet be completed.",
+  "tasks": [
+    {
+      "id": "RT1",
+      "title": "Freeze the realtime preview contract and branch boundaries",
+      "acceptance": "The authoritative Goal passes lint, every repository has a dedicated feature worktree, existing dirty working copies remain untouched, and live versus snapshot semantics are explicit."
+    },
+    {
+      "id": "RT2",
+      "title": "Add realtime and multi-service runtime support to Xixi",
+      "acceptance": "The dashboard identifies checked-out branches as live and detached branches as snapshots, allocates all declared service ports, records runtime/data facts, and covers these behaviors with automated tests.",
+      "dependsOn": ["RT1"]
+    },
+    {
+      "id": "RT3",
+      "title": "Enable automatic updates for CanvasStorm and Code Quest",
+      "acceptance": "A CanvasStorm frontend edit triggers an observable browser reload, while Code Quest uses Vite HMR with a dynamic API port and branch-specific database path; both projects retain their own verification evidence.",
+      "dependsOn": ["RT2"]
+    },
+    {
+      "id": "RT4",
+      "title": "Enable Gongtu realtime frontend and audit full-stack isolation",
+      "acceptance": "A Gongtu frontend edit triggers an observable browser reload on a dynamic port; backend and database isolation either pass a direct runtime test or have a reproducible blocker report with command, log, root cause, and executable follow-up task.",
+      "dependsOn": ["RT2"]
+    },
+    {
+      "id": "RT5",
+      "title": "Run cross-project browser acceptance and publish PR evidence",
+      "acceptance": "Desktop and mobile browser evidence shows the three projects, correct live/snapshot labels, and automatic update behavior; all relevant test suites pass, limitations are visible, and each changed repository has an intentional pushed PR.",
+      "dependsOn": ["RT3", "RT4"]
+    }
+  ]
+}

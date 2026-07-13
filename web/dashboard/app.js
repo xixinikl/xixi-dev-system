@@ -27,6 +27,10 @@ function isolationLabel(value) {
   }[value] || '独立数据';
 }
 
+function previewModeLabel(branch) {
+  return branch.previewMode === 'live' ? '实时更新' : '分支快照';
+}
+
 function formatTime(value) {
   if (!value) return '';
   const date = new Date(value);
@@ -77,7 +81,8 @@ function actionGroup(project, branch) {
   const wrapper = element('div', 'preview-actions');
   const key = `${project.id}:${branch.name}`;
   const busy = state.loading.has(key);
-  const primary = element('button', `primary-button${branch.preview ? ' running' : ''}`, busy ? '正在启动' : branch.preview ? '打开预览' : '预览');
+  const modeName = branch.previewMode === 'live' ? '实时预览' : '快照预览';
+  const primary = element('button', `primary-button${branch.preview ? ' running' : ''}`, busy ? '正在启动' : branch.preview ? `打开${modeName}` : modeName);
   primary.type = 'button';
   primary.disabled = busy || !project.available;
   primary.addEventListener('click', () => preview(project, branch));
@@ -101,6 +106,7 @@ function branchRow(project, branch) {
   summary.append(element('span', 'branch-subject', branch.subject || '暂无提交摘要'));
   row.append(summary);
   const middle = element('div', 'branch-time');
+  middle.append(element('span', `mode-tag ${branch.previewMode || 'snapshot'}`, previewModeLabel(branch)));
   middle.append(element('span', `isolation-tag ${project.isolation || ''}`, isolationLabel(project.isolation)));
   middle.append(document.createTextNode(`  ${formatTime(branch.committedAt)}`));
   row.append(middle);
@@ -130,6 +136,10 @@ function projectView(project, index) {
     commitMeta.append(element('span', 'commit-sha', current.sha));
     meta.append(commitMeta);
     if (project.dirty) meta.append(element('span', 'meta-item dirty', '本地修改会进入当前分支预览'));
+    const modeMeta = element('span', 'meta-item');
+    modeMeta.append(element('span', 'meta-label', '更新方式'));
+    modeMeta.append(element('span', `mode-tag ${current.previewMode || 'snapshot'}`, previewModeLabel(current)));
+    meta.append(modeMeta);
   }
   copy.append(meta);
   main.append(copy);
