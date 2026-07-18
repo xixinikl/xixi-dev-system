@@ -10,6 +10,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
 import xds
+import bootstrap_system
 
 
 def init_repo(path: Path, origin: str) -> None:
@@ -195,6 +196,24 @@ class EvolutionTests(unittest.TestCase):
             duplicate.write_text('name = "每周个人开发系统回顾"\n', encoding="utf-8")
             with self.assertRaises(SystemExit):
                 xds.automation_learning_ensure(args)
+
+    def test_bootstrap_uses_the_actual_migrated_automation_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            workspace = base / "workspace"
+            codex_home = base / "codex"
+            legacy = codex_home / "automations/legacy-id/automation.toml"
+            workspace.mkdir()
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text('name = "每周个人开发系统回顾"\n', encoding="utf-8")
+            output = io.StringIO()
+
+            with contextlib.redirect_stdout(output):
+                xds.automation_learning_ensure(
+                    argparse.Namespace(workspace=str(workspace), codex_home=str(codex_home))
+                )
+
+            self.assertEqual(bootstrap_system.automation_path_from_output(output.getvalue()), legacy.resolve())
 
 
 if __name__ == "__main__":
