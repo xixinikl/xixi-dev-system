@@ -1,7 +1,11 @@
 import json
+import http.client
 import subprocess
 import tempfile
+import threading
 import unittest
+import urllib.error
+import urllib.request
 from pathlib import Path
 import sys
 
@@ -93,6 +97,48 @@ class DashboardTests(unittest.TestCase):
 
         self.assertTrue((branch_root / "node_modules").is_symlink())
         self.assertEqual((branch_root / "node_modules").resolve(), source_modules.resolve())
+
+    def test_dashboard_rejects_non_loopback_bind_and_host_headers(self):
+        self.assertTrue(dashboard.is_loopback_host_header("127.0.0.1:8080"))
+        self.assertTrue(dashboard.is_loopback_host_header("localhost:8080"))
+        self.assertFalse(dashboard.is_loopback_host_header("evil.example:8080"))
+        with self.assertRaisesRegex(RuntimeError, "bind only"):
+            dashboard.validate_bind_host("0.0.0.0")
+
+    def test_dashboard_http_control_requires_local_marker(self):
+        handler = type(
+            "TestDashboardHandler",
+            (dashboard.DashboardHandler,),
+            {"registry_path": self.registry, "runtime_path": self.runtime},
+        )
+        server = dashboard.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        url = f"http://127.0.0.1:{server.server_port}/api/projects/demo/branches/main/start"
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as missing_marker:
+                urllib.request.urlopen(urllib.request.Request(url, method="POST"), timeout=2)
+            self.assertEqual(missing_marker.exception.code, 403)
+
+            marked = urllib.request.Request(
+                url,
+                method="POST",
+                headers={dashboard.DASHBOARD_REQUEST_HEADER: "1"},
+            )
+            with self.assertRaises(urllib.error.HTTPError) as unknown_project:
+                urllib.request.urlopen(marked, timeout=2)
+            self.assertEqual(unknown_project.exception.code, 400)
+
+            connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+            connection.request("GET", "/api/projects", headers={"Host": "evil.example"})
+            rejected_host = connection.getresponse()
+            self.assertEqual(rejected_host.status, 403)
+            rejected_host.read()
+            connection.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
 
 
 if __name__ == "__main__":
