@@ -44,7 +44,10 @@ async function preview(project, branch) {
   render();
   showNotice('');
   try {
-    const response = await fetch(`/api/projects/${encodeURIComponent(project.id)}/branches/${encodeURIComponent(branch.name)}/start`, { method: 'POST' });
+    const response = await fetch(`/api/projects/${encodeURIComponent(project.id)}/branches/${encodeURIComponent(branch.name)}/start`, {
+      method: 'POST',
+      headers: { 'X-XDS-Dashboard': '1' },
+    });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || '预览启动失败');
     window.location.assign(payload.preview.url);
@@ -61,7 +64,10 @@ async function stopPreview(project, branch) {
   state.loading.add(key);
   render();
   try {
-    const response = await fetch(`/api/projects/${encodeURIComponent(project.id)}/branches/${encodeURIComponent(branch.name)}/stop`, { method: 'POST' });
+    const response = await fetch(`/api/projects/${encodeURIComponent(project.id)}/branches/${encodeURIComponent(branch.name)}/stop`, {
+      method: 'POST',
+      headers: { 'X-XDS-Dashboard': '1' },
+    });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || '停止失败');
     await loadProjects(false);
