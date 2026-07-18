@@ -1,19 +1,21 @@
 # 新电脑实时预览交接
 
-> 更新时间：2026-07-13  
+> 更新时间：2026-07-19  
 > 目标：在另一台电脑恢复 Xixi 项目预览中心，并让思维风暴、码上冒险、公途继续支持实时更新。
 
-## 先理解 PR #14
+## 先理解当前版本状态
 
 GitHub 默认 `git clone` 下载仓库的默认分支，通常是 `main`。
 
-实时预览功能目前在 `cx/realtime-preview-v1` 分支，并通过 PR #14 等待审阅。它还没有进入 `main`。当前合并链是：
+Xixi Dev System 的历史堆叠链是：
 
 1. PR #12：`cx/goal-state-kernel-v1` -> `main`
-2. PR #13：`cx/branch-preview-dashboard` -> `cx/goal-state-kernel-v1`
-3. PR #14：`cx/realtime-preview-v1` -> `cx/branch-preview-dashboard`
+2. PR #13：`cx/branch-preview-dashboard` -> `main`
+3. PR #14：`cx/realtime-preview-v1` -> `main`
 
-因此，“PR #14 合并后就不用切分支”并不完整。正确条件是：**#12、#13、#14 的最终内容全部进入 `main` 后**，新电脑默认 clone 才能直接得到实时预览功能。在此之前，新电脑必须明确检出 `cx/realtime-preview-v1`。
+截至 2026-07-19，PR #12 与 #13 已进入 `main`，PR #14 是最后一层集成。**从 `main` 读到本文件时，直接使用 `main`，不要再按旧堆叠链切换 Xixi Dev System 分支。** 只有审阅尚未合并的 PR #14 本身时，才使用 `cx/realtime-preview-v1`。
+
+思维风暴、码上冒险和公途是独立仓库，它们的实时预览 PR 有各自的合并状态；Xixi Dev System 进入 `main` 不代表三个项目分支也自动进入各自的默认分支。
 
 ## 给另一台电脑 Codex 的交接指令
 
@@ -24,9 +26,9 @@ GitHub 默认 `git clone` 下载仓库的默认分支，通常是 `main`。
 xixi-dev-system/docs/HANDOFF_NEW_COMPUTER_REALTIME_PREVIEW.zh-CN.md
 为唯一交接入口。
 
-当前实时预览尚未进入 main，必须检出以下分支：
-- xixi-dev-system: cx/realtime-preview-v1
-- canvas-storm: cx/realtime-preview-v1
+Xixi Dev System 使用 main。三个业务项目按各自 PR 的当前状态恢复：
+- xixi-dev-system: main
+- canvas-storm: cx/direction-workbench-ci（实时预览 PR #4 已合入该分支）
 - code-quest: cx/realtime-preview-v1
 - gongtu-project: cx/realtime-preview-v1
 
@@ -45,8 +47,7 @@ xixi-dev-system/docs/HANDOFF_NEW_COMPUTER_REALTIME_PREVIEW.zh-CN.md
 mkdir -p ~/Documents/xixi-workspace
 cd ~/Documents/xixi-workspace
 
-git clone --branch cx/realtime-preview-v1 \
-  https://github.com/xixinikl/xixi-dev-system.git
+git clone https://github.com/xixinikl/xixi-dev-system.git
 cd xixi-dev-system
 bin/install-local.sh
 bin/bootstrap-new-machine.sh --workspace ~/Documents/xixi-workspace
@@ -63,7 +64,7 @@ bin/install-local.sh --upgrade
 ```bash
 cd ~/Documents/xixi-workspace
 
-git clone --branch cx/realtime-preview-v1 \
+git clone --branch cx/direction-workbench-ci \
   https://github.com/xixinikl/canvas-storm.git
 git clone --branch cx/realtime-preview-v1 \
   https://github.com/xixinikl/code-quest.git
@@ -79,10 +80,13 @@ git clone --branch cx/realtime-preview-v1 \
 XDS="$HOME/.codex/bin/xixi-dev-system"
 ROOT="$HOME/Documents/xixi-workspace"
 
-"$XDS" runtime prepare --project "$ROOT/canvas-storm"
-"$XDS" runtime prepare --project "$ROOT/code-quest"
+cd "$ROOT/canvas-storm" && npm ci
+cd "$ROOT/code-quest" && npm ci
+cd "$ROOT/gongtu-project" && npm ci
 "$XDS" runtime prepare --project "$ROOT/gongtu-project"
 ```
+
+`runtime prepare` 只用于适配器中声明了 `{python}` 的 `uv` 隔离运行环境；纯 Node 项目使用对应锁文件的包管理器安装依赖。项目中心也会在首次预览时准备缺失的 Node 依赖，但换机时显式执行更容易定位安装错误。
 
 思维风暴调用真实 AI 时需要本机 `.env`。从 `.env.example` 创建，但不要把旧电脑的 API Key 写进聊天、交接文档或 GitHub：
 
@@ -156,11 +160,11 @@ Codex 应执行以下事实流程：
 6. 注册项目中心，启动预览并用浏览器证明文件修改会自动呈现。
 7. 将 `.xixi-dev-system.json`、测试和 CI 作为项目代码提交；本机端口、数据库、日志和密钥不提交。
 
-## 当前交付入口
+## 当前交付入口（2026-07-19 核验）
 
-- Xixi 实时预览：[PR #14](https://github.com/xixinikl/xixi-dev-system/pull/14)
-- 思维风暴：[PR #4](https://github.com/xixinikl/canvas-storm/pull/4)
-- 码上冒险：[PR #4](https://github.com/xixinikl/code-quest/pull/4)
-- 公途：[PR #20](https://github.com/xixinikl/gongtu-project/pull/20)
+- Xixi 实时预览：[PR #14](https://github.com/xixinikl/xixi-dev-system/pull/14)，最终集成到 `main`
+- 思维风暴：[PR #4](https://github.com/xixinikl/canvas-storm/pull/4)，已合入 `cx/direction-workbench-ci`
+- 码上冒险：[PR #4](https://github.com/xixinikl/code-quest/pull/4)，仍为 draft
+- 公途：[PR #20](https://github.com/xixinikl/gongtu-project/pull/20)，仍为 draft
 
 交接以仓库提交、分支、PR 和本文件为事实源，不依赖旧聊天记录。

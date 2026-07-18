@@ -26,6 +26,8 @@ REGISTRY_PATH = DEFAULT_HOME / "dashboard-projects.json"
 RUNTIME_PATH = DEFAULT_HOME / "dashboard-runtime"
 ASSET_PATH = Path(__file__).resolve().parents[1] / "web" / "dashboard"
 PROCESS_HANDLES: dict[str, subprocess.Popen] = {}
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+DASHBOARD_REQUEST_HEADER = "X-XDS-Dashboard"
 
 
 def write_json(path: Path, value: object) -> None:
@@ -37,6 +39,19 @@ def read_json(path: Path, default: object) -> object:
     if not path.is_file():
         return default
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def is_loopback_host_header(value: str) -> bool:
+    try:
+        hostname = urlparse(f"//{value.strip()}").hostname
+    except ValueError:
+        return False
+    return bool(hostname and hostname.lower().rstrip(".") in LOOPBACK_HOSTS)
+
+
+def validate_bind_host(host: str) -> None:
+    if host.lower().rstrip(".") not in {"127.0.0.1", "localhost"}:
+        raise RuntimeError("dashboard may bind only to 127.0.0.1 or localhost")
 
 
 def run(*command: str, cwd: Path | None = None, check: bool = True) -> str:
@@ -385,6 +400,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         return json.loads(self.rfile.read(length) or b"{}")
 
+    def allow_local_request(self) -> bool:
+        if is_loopback_host_header(self.headers.get("Host", "")):
+            return True
+        self.json_response({"error": "仅允许从本机回环地址访问"}, HTTPStatus.FORBIDDEN)
+        return False
+
     def registry_entry(self, project_id: str) -> dict:
         registry = load_registry(self.registry_path)
         entry = next((item for item in registry["projects"] if item.get("id") == project_id), None)
@@ -393,6 +414,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return entry
 
     def do_GET(self) -> None:
+        if not self.allow_local_request():
+            return
         parsed = urlparse(self.path)
         if parsed.path == "/api/projects":
             registry = load_registry(self.registry_path)
@@ -417,6 +440,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self) -> None:
+        if not self.allow_local_request():
+            return
+        if self.headers.get(DASHBOARD_REQUEST_HEADER) != "1":
+            self.json_response({"error": "缺少本地控制请求标记"}, HTTPStatus.FORBIDDEN)
+            return
         match = re.fullmatch(r"/api/projects/([^/]+)/branches/(.+)/(start|stop)", urlparse(self.path).path)
         if not match:
             self.json_response({"error": "接口不存在"}, 404)
@@ -436,6 +464,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 
 def serve(host: str, port: int, registry: Path = REGISTRY_PATH, runtime: Path = RUNTIME_PATH) -> None:
+    validate_bind_host(host)
     handler = type("ConfiguredDashboardHandler", (DashboardHandler,), {"registry_path": registry, "runtime_path": runtime})
     server = ThreadingHTTPServer((host, port), handler)
     print(f"Xixi project preview center: http://{host}:{port}", flush=True)

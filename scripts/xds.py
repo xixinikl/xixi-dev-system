@@ -769,11 +769,14 @@ def doctor(args: argparse.Namespace) -> None:
     missing = [key for key in needed if not config.get(key)]
     missing.extend(f"runtime.{key}" for key in ("manager", "startCommand", "doctorCommand", "workingDirectory") if not runtime.get(key))
     git_ok = run_git(root, "rev-parse", "--is-inside-work-tree", check=False) == "true"
-    reports_ok = (root / ".xds" / "reports" / "updates").is_dir()
+    reports_path = root / ".xds" / "reports" / "updates"
+    report_parents = (root / ".xds", root / ".xds" / "reports", reports_path)
+    reports_ok = not any(path.exists() and not path.is_dir() for path in report_parents)
+    reports_status = "pass" if reports_path.is_dir() else "ready" if reports_ok else "fail"
     print(f"project: {config.get('projectName', 'unknown')}")
     print(f"git: {'pass' if git_ok else 'fail'}")
     print(f"adapter: {'pass' if not missing else 'fail'}")
-    print(f"report-directory: {'pass' if reports_ok else 'fail'}")
+    print(f"report-directory: {reports_status}")
     if missing:
         print("missing: " + ", ".join(missing))
     ok = git_ok and reports_ok and not missing
