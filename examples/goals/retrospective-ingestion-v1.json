@@ -1,0 +1,13 @@
+{
+  "id": "retrospective-ingestion-v1",
+  "title": "Retrospective ingestion reliability",
+  "objective": "Reliably harvest project retrospectives into reviewable candidates, enforce human promotion gates, restore one stable learning automation on repository entry or bootstrap, and publish the verified system and Profile updates.",
+  "tasks": [
+    {"id": "R1", "title": "Freeze ingestion and promotion contracts", "acceptance": "The registry schema, required fields, states, evidence rules, and promotion gates are explicit."},
+    {"id": "R2", "title": "Implement robust retrospective harvesting", "acceptance": "Legacy, incomplete, changed, duplicate, and zero-state inputs produce deterministic read-only registry results.", "dependsOn": ["R1"]},
+    {"id": "R3", "title": "Implement review and publication gates", "acceptance": "Single-source promotion is rejected unless source evidence includes an explicitly reviewed high-impact owner correction; publication is reviewed and idempotent.", "dependsOn": ["R2"]},
+    {"id": "R4", "title": "Restore one learning automation from every system entry", "acceptance": "Repository AGENTS, install, and bootstrap converge on a stable automation id; ensure is idempotent and duplicate instances stop execution.", "dependsOn": ["R3"]},
+    {"id": "R5", "title": "Verify tests and real source projects", "acceptance": "Automated tests and real read-only harvest of both Gongtu working copies and CanvasStorm pass without changing source Git state.", "dependsOn": ["R4"]},
+    {"id": "R6", "title": "Publish system and Profile updates", "acceptance": "Both branches are committed, pushed, visible in their existing GitHub PRs, and the completion audit has direct evidence.", "dependsOn": ["R5"]}
+  ]
+}

@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "owner": "xixinikl",
+  "scopePolicy": "local_git_origin_only",
+  "remoteContentRead": false,
+  "repositories": [
+    {
+      "name": "gongtu-project",
+      "path": "/Users/miduoduo/Documents/xixi_gongtu",
+      "origin": "https://github.com/xixinikl/gongtu-project.git",
+      "role": "experience_source",
+      "evidence": [
+        "AGENTS.md",
+        "CURRENT_STATUS.md",
+        "TASKS.md",
+        "错误复盘.md",
+        "doc/QUESTION_BANK_PIPELINE_METHOD.md",
+        "doc/QUANTITY_MODULE_INTEGRATION_HANDOFF.md",
+        "doc/goals/verbal-reading-real-ai-mvp.md",
+        "doc/goals/gongtu-unified-learning-platform.md"
+      ]
+    },
+    {
+      "name": "canvas-storm",
+      "path": "/Users/miduoduo/Documents/思维风暴",
+      "origin": "https://github.com/xixinikl/canvas-storm.git",
+      "role": "experience_source",
+      "evidence": [
+        ".ai_rules.md",
+        "CURRENT_STATUS.md",
+        "TASKS.md",
+        "HANDOFF.md",
+        "PR_PLAN.md",
+        "tests/api-backend.test.js",
+        "tests/frontend-data.test.js",
+        "tests/html-syntax.test.js",
+        "tests/ws.test.js"
+      ]
+    },
+    {
+      "name": "gongtu-project-main-app",
+      "path": "/Users/miduoduo/Documents/xixi_gongtu-main-app",
+      "origin": "https://github.com/xixinikl/gongtu-project.git",
+      "role": "experience_source_parallel_working_copy",
+      "evidence": [
+        "CURRENT_STATUS.md",
+        "TASKS.md",
+        "错误复盘.md",
+        "doc/VERBAL_VOCAB_EXECUTION_PLAN.md",
+        "doc/VOCAB_VERBAL_INTEGRATION_HANDOFF.md",
+        "doc/import-reports/"
+      ]
+    },
+    {
+      "name": "xixi-dev-system",
+      "path": "/Users/miduoduo/Documents/xixi-dev-system",
+      "origin": "https://github.com/xixinikl/xixi-dev-system.git",
+      "role": "system_target",
+      "evidence": [
+        "README.md",
+        "SYSTEM.md",
+        "STATE.md",
+        "scripts/xds.py",
+        "automations/weekly-personal-dev-system.prompt.md",
+        "tests/test_goal_state.py"
+      ]
+    },
+    {
+      "name": "xixi-agent-profile",
+      "path": "/Users/miduoduo/Documents/xixi-agent-profile",
+      "origin": "https://github.com/xixinikl/xixi-agent-profile.git",
+      "role": "profile_target",
+      "evidence": [
+        "AGENTS.md",
+        "START_HERE.md",
+        "WORKFLOW_INDEX.md",
+        "MEMORY_UPDATE_PROTOCOL.md",
+        "INDUSTRIAL_WORKFLOW.md",
+        "PROJECTS.md"
+      ]
+    }
+  ],
+  "excludedExamples": [
+    {
+      "path": "/Users/miduoduo/Documents/standard-project-workflow",
+      "reason": "origin owner is not xixinikl"
+    },
+    {
+      "path": "/Users/miduoduo/Documents/openvisualdesign",
+      "reason": "no matching GitHub origin"
+    },
+    {
+      "path": "/Users/miduoduo/project/prd_agent",
+      "reason": "origin owner is not xixinikl"
+    }
+  ]
+}

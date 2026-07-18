@@ -64,11 +64,95 @@ bin/xixi-dev-system workspace create --project /path/to/project --branch feature
 bin/xixi-dev-system preview start --project /path/to/project
 ```
 
+Discover only local working copies owned by a GitHub account, without reading
+remote repository contents, then build a read-only evidence portfolio for the
+projects deliberately selected as learning sources:
+
+```bash
+bin/xixi-dev-system projects discover --owner xixinikl \
+  --root /path/to/workspace --output /tmp/projects.json
+bin/xixi-dev-system learning portfolio --owner xixinikl \
+  --project /path/to/project-a --project /path/to/project-b \
+  --output /tmp/evidence-portfolio.json
+```
+
 The installed `xixi-dev-system` skill is the agent-facing entry point. The CLI
 is the deterministic implementation behind it.
 
+## Standard goals
+
+Long-running work uses one bounded Goal with dependency-ordered tasks and
+evidence-gated progress. The visible Codex Goal is the active execution view;
+`.xds/goals/` is the durable project state used across threads.
+
+```bash
+xixi-dev-system goal create --project . \
+  --spec /path/to/goal.json
+xixi-dev-system goal show --project . --goal canvas-storm-mvp-first
+xixi-dev-system goal task start --project . \
+  --goal canvas-storm-mvp-first --task T1
+xixi-dev-system goal task verify --project . \
+  --goal canvas-storm-mvp-first --task T1 \
+  --evidence-type file --evidence "docs/spec.md"
+```
+
+Progress is calculated only from verified tasks. Dependencies, one-running-task
+discipline, blockers, runs, and evidence are stored in the same state file.
+The contract is documented by `system/goal-state-v1.schema.json`; a complete
+CanvasStorm planning example lives in `examples/goals/`.
+
 For a plain-Chinese explanation of which repository does what, read
 [`docs/repository-map.zh-CN.md`](docs/repository-map.zh-CN.md).
+
+For long-running CDS-style Goals, keep a human-readable authoritative document
+beside the executable JSON and lint both before starting:
+
+```bash
+bin/xixi-dev-system goal lint \
+  --document docs/goals/example.md \
+  --spec examples/goals/example.json
+```
+
+The lint checks structure; it never substitutes for business verification or
+the completion audit described by the Goal.
+
+## Retrospective ingestion
+
+The system can harvest structured candidates from `错误复盘.md`,
+`RETROSPECTIVE.md`, and `doc/retrospectives/` without modifying source
+projects:
+
+```bash
+bin/xixi-dev-system learning harvest --owner xixinikl \
+  --project /path/to/project \
+  --registry /path/to/project/.xds/learning/registry.json
+```
+
+Harvesting preserves source evidence, records stable source and content
+fingerprints, marks missing fields, updates changed entries to
+`needs_re_review`, and is idempotent when content is unchanged. An empty
+retrospective set is a valid zero state.
+
+Promotion is intentionally two-step. `learning review` requires either support
+from two different origins or an explicit high-impact owner correction present
+in source evidence. `learning publish` accepts only reviewed
+`approved_for_profile` candidates and uses the candidate id to prevent duplicate
+Profile entries. Automated harvesting never implies approval.
+
+## Personal learning automation
+
+When this repository is cloned or opened, Agents follow `AGENTS.md` and ensure
+the versioned personal learning automation exists:
+
+```bash
+bin/xixi-dev-system automation ensure-learning \
+  --workspace /path/to/local/workspace
+```
+
+The command uses the stable id `weekly-personal-dev-system`, updates an existing
+instance, preserves its creation time, and refuses to proceed when duplicates
+already exist. `bootstrap-new-machine.sh` invokes the same command after install,
+so clone, restore, and upgrade do not create parallel automation variants.
 
 ## Rules
 

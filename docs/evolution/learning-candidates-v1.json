@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "candidates": [
+    {
+      "id": "cds-goal-authoring",
+      "source_projects": ["gongtu-project", "canvas-storm"],
+      "evidence_paths": [
+        "gongtu-project:doc/goals/verbal-reading-real-ai-mvp.md",
+        "gongtu-project:doc/goals/gongtu-unified-learning-platform.md",
+        "canvas-storm:PR_PLAN.md"
+      ],
+      "observed_problem": "Long work loses its main line when a checklist lacks current facts, dependency gates, evidence slots, scope boundaries, and a completion audit.",
+      "repeated_pattern": "The owner repeatedly requested CDS-style authoritative Goal documents and rejected loose task lists.",
+      "proposed_rule": "Formal long-running Goals must use one authoritative document with facts, scope and non-scope, dependency-ordered phases, independently verifiable nodes, evidence slots, stop conditions, delivery boundaries, and completion audit.",
+      "target_scope": "system_and_profile",
+      "enforcement": "template_and_lint",
+      "counterexample_or_limit": "A trivial one-command task does not need a large document, but still needs an acceptance signal and truthful evidence.",
+      "verification": "Goal lint rejects missing core sections and accepts the repository CDS examples."
+    },
+    {
+      "id": "evidence-before-completion",
+      "source_projects": ["gongtu-project", "canvas-storm"],
+      "evidence_paths": [
+        "gongtu-project:错误复盘.md",
+        "gongtu-project:CURRENT_STATUS.md",
+        "canvas-storm:CURRENT_STATUS.md",
+        "canvas-storm:PR_PLAN.md"
+      ],
+      "observed_problem": "Status prose and visual confidence can drift from the actual command, browser, data, or Git state.",
+      "repeated_pattern": "Both projects use explicit tests and status evidence; gongtu repeatedly corrected claims made before source-page or full-path verification.",
+      "proposed_rule": "Completion is derived from direct evidence at the same scope as the claim; stale status entries must be marked superseded rather than silently coexisting as current truth.",
+      "target_scope": "system_and_profile",
+      "enforcement": "goal_state_and_completion_audit",
+      "counterexample_or_limit": "A narrow unit test can prove a helper, but cannot prove a full user path or production readiness.",
+      "verification": "Goal state counts only verified tasks and completion audit maps each requirement to evidence."
+    },
+    {
+      "id": "owner-scoped-local-discovery",
+      "source_projects": ["gongtu-project", "canvas-storm"],
+      "evidence_paths": [
+        "gongtu-project:AGENTS.md",
+        "canvas-storm:HANDOFF.md"
+      ],
+      "observed_problem": "Scanning every local repository mixes personal projects, third-party clones, dependencies, and unrelated organizations.",
+      "repeated_pattern": "The owner explicitly defined GitHub ownership as a filter for local project scope, not permission to read remote contents.",
+      "proposed_rule": "Multi-project discovery must filter local repositories by parsed origin owner and remain read-only unless a project is separately selected for changes.",
+      "target_scope": "system_and_profile",
+      "enforcement": "discovery_command_and_workflow_rule",
+      "counterexample_or_limit": "Repositories without a matching origin are excluded even if their directory name looks related; aliases require explicit owner configuration.",
+      "verification": "Temporary repositories and the real local roots return only xixinikl-owned origins."
+    },
+    {
+      "id": "source-hierarchy-for-extracted-data",
+      "source_projects": ["gongtu-project"],
+      "evidence_paths": [
+        "gongtu-project:doc/QUESTION_BANK_PIPELINE_METHOD.md",
+        "gongtu-project:错误复盘.md",
+        "gongtu-project:doc/QUANTITY_MODULE_INTEGRATION_HANDOFF.md"
+      ],
+      "observed_problem": "OCR and derived answers introduced silent corruption and repeated repair work.",
+      "repeated_pattern": "The owner repeatedly required OCR only for location, visual source confirmation for facts, original images for diagrams, and complete field-level verification before moving on.",
+      "proposed_rule": "High-stakes extraction pipelines must declare a source hierarchy, keep derived data quarantined, preserve source evidence, and gate publication on field-level verification; question media and explanation media are separate contracts.",
+      "target_scope": "profile",
+      "enforcement": "artifact_pipeline_template",
+      "counterexample_or_limit": "This is not required for ordinary deterministic text files with lossless structured parsers.",
+      "verification": "A reusable checklist requires source, locator, field verification, media role, and publish gate."
+    },
+    {
+      "id": "product-model-before-ui-patching",
+      "source_projects": ["gongtu-project", "canvas-storm"],
+      "evidence_paths": [
+        "gongtu-project:doc/UI_DENSITY_AND_LEARNING_PRODUCT_GUIDE.md",
+        "canvas-storm:HANDOFF.md",
+        "canvas-storm:PR_PLAN.md"
+      ],
+      "observed_problem": "Repeatedly adding controls or CSS to an unclear product model made interfaces denser without making the next action clearer.",
+      "repeated_pattern": "CanvasStorm moved to MVP-first semantics; gongtu repeatedly separated learning, practice, review, and AI contexts instead of stacking every function on one screen.",
+      "proposed_rule": "When users cannot explain the next action or two controls have overlapping semantics, freeze the product/state contract before further visual patching and verify one primary path per state.",
+      "target_scope": "profile",
+      "enforcement": "product_review_checklist",
+      "counterexample_or_limit": "A local spacing or contrast defect with a stable interaction contract does not require information-architecture redesign.",
+      "verification": "Design reviews identify state, primary action, transition, and deferred actions before CSS implementation."
+    },
+    {
+      "id": "handoff-is-a-fact-contract",
+      "source_projects": ["gongtu-project", "canvas-storm"],
+      "evidence_paths": [
+        "gongtu-project:AGENTS.md",
+        "gongtu-project:doc/QUANTITY_MODULE_INTEGRATION_HANDOFF.md",
+        "canvas-storm:HANDOFF.md"
+      ],
+      "observed_problem": "Chat summaries and old absolute paths become stale, while parallel threads can overwrite or misstate work.",
+      "repeated_pattern": "Both projects rely on repository handoffs that name branch, task, changed files, verified and unverified work, next action, and risks.",
+      "proposed_rule": "A handoff is a repository-backed fact contract, not a narrative recap; it must identify superseded facts and distinguish implemented, verified, and planned states.",
+      "target_scope": "profile",
+      "enforcement": "handoff_template_and_end_of_task_check",
+      "counterexample_or_limit": "A short stateless question needs no formal handoff.",
+      "verification": "Profile handoff template includes authoritative source, superseded facts, and explicit unverified items."
+    },
+    {
+      "id": "zero-state-is-a-valid-terminal-state",
+      "source_projects": ["gongtu-project"],
+      "evidence_paths": [
+        "gongtu-project:tools/quantity-bank-ci.mjs",
+        "gongtu-project:错误复盘.md"
+      ],
+      "observed_problem": "A CI assertion required at least one repair task, so the fully repaired zero-queue state failed.",
+      "repeated_pattern": "The defect appeared at the transition from partial completion to full completion and required a zero-state boundary fix.",
+      "proposed_rule": "Workflow checks must test empty, partial, and complete states; absence of work is valid when counts and invariants agree.",
+      "target_scope": "profile",
+      "enforcement": "testing_rule",
+      "counterexample_or_limit": "An empty result remains an error when the contract requires at least one configured input.",
+      "verification": "System tests include zero-task Goal or learning portfolios where applicable."
+    }
+  ]
+}

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -20,6 +21,33 @@ from pathlib import Path
 
 CONFIG = ".xixi-dev-system.json"
 PROFILE_REPOSITORY = "https://github.com/xixinikl/xixi-agent-profile.git"
+GOAL_STATUSES = {"active", "blocked", "verified"}
+TASK_STATUSES = {"pending", "running", "blocked", "failed", "verified"}
+EVIDENCE_TYPES = {"command", "file", "url", "test", "screenshot", "note"}
+EVIDENCE_NAMES = {
+    "AGENTS.md", "CURRENT_STATUS.md", "TASKS.md", "HANDOFF.md", "PR_PLAN.md",
+    "错误复盘.md", "README.md", "SYSTEM.md", "STATE.md",
+}
+EVIDENCE_NAME_MARKERS = ("HANDOFF", "AUDIT", "METHOD", "WORKFLOW", "GOAL")
+DISCOVERY_SKIPS = {
+    ".git", ".xds", ".xds-system", "node_modules", "venv", ".venv", "Library",
+    ".cache", ".npm", ".nvm", ".codex", "dist", "build", "output",
+}
+RETROSPECTIVE_NAMES = {"错误复盘.md", "RETROSPECTIVE.md"}
+RETROSPECTIVE_LABELS = {
+    "scenario": ("场景", "已证实事实", "observed problem", "scenario"),
+    "mistake": ("我做错了什么", "错误", "mistake"),
+    "owner_correction": ("用户如何纠正", "用户纠正", "owner correction"),
+    "root_cause": ("根因", "root cause"),
+    "rule": ("以后必须这样做", "规则", "预防动作", "proposed rule", "prevention action"),
+    "verification": ("可验证的防复发动作", "验证", "verification"),
+    "impact": ("影响", "impact"),
+}
+REQUIRED_RETROSPECTIVE_FIELDS = ("scenario", "root_cause", "rule", "verification")
+SENSITIVE_EVIDENCE_PATTERN = re.compile(
+    r"(?:sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{16,}|BEGIN\s+(?:RSA|OPENSSH|EC)\s+PRIVATE\s+KEY|(?:api[_ -]?key|token|password|cookie)\s*[:=]\s*\S+)",
+    re.I,
+)
 
 
 def die(message: str) -> None:
@@ -55,6 +83,555 @@ def write_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def timestamp() -> str:
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def github_origin_owner(origin: str) -> str | None:
+    match = re.search(r"github\.com[/:]([^/]+)/[^/]+(?:\.git)?$", origin.strip(), re.I)
+    return match.group(1) if match else None
+
+
+def discover_local_repositories(roots: list[Path], owner: str, max_depth: int = 6) -> list[dict]:
+    repositories: dict[str, dict] = {}
+    for search_root in roots:
+        if not search_root.is_dir():
+            continue
+        base_depth = len(search_root.parts)
+        for current, directories, files in os.walk(search_root):
+            current_path = Path(current)
+            depth = len(current_path.parts) - base_depth
+            directories[:] = [
+                name for name in directories
+                if name not in DISCOVERY_SKIPS and not (name.startswith(".") and name != ".git")
+            ]
+            git_marker = current_path / ".git"
+            if git_marker.is_dir() or git_marker.is_file():
+                origin = run_git(current_path, "remote", "get-url", "origin", check=False)
+                if github_origin_owner(origin or "") == owner:
+                    key = str(current_path.resolve())
+                    repositories[key] = {
+                        "name": current_path.name,
+                        "path": key,
+                        "origin": origin,
+                        "owner": owner,
+                        "branch": run_git(current_path, "branch", "--show-current", check=False),
+                    }
+                directories[:] = []
+                continue
+            if depth >= max_depth:
+                directories[:] = []
+    return sorted(repositories.values(), key=lambda item: item["path"])
+
+
+def projects_discover(args: argparse.Namespace) -> None:
+    roots = [project(value) for value in args.root]
+    repositories = discover_local_repositories(roots, args.owner, args.max_depth)
+    payload = {
+        "schemaVersion": 1,
+        "owner": args.owner,
+        "scopePolicy": "local_git_origin_only",
+        "remoteContentRead": False,
+        "roots": [str(item) for item in roots],
+        "repositoryCount": len(repositories),
+        "repositories": repositories,
+    }
+    if args.output:
+        target = Path(args.output).expanduser().resolve()
+        write_json(target, payload)
+        print(target)
+    else:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def is_evidence_file(path: Path) -> bool:
+    upper_name = path.name.upper()
+    return path.name in EVIDENCE_NAMES or any(marker in upper_name for marker in EVIDENCE_NAME_MARKERS)
+
+
+def file_digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def learning_portfolio(args: argparse.Namespace) -> None:
+    projects = [project(value) for value in args.project]
+    entries = []
+    for root in projects:
+        origin = run_git(root, "remote", "get-url", "origin", check=False)
+        if github_origin_owner(origin or "") != args.owner:
+            die(f"project origin is not owned by {args.owner}: {root}")
+        evidence = []
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or any(part in DISCOVERY_SKIPS for part in path.relative_to(root).parts):
+                continue
+            if not is_evidence_file(path):
+                continue
+            relative = path.relative_to(root).as_posix()
+            headings = []
+            if path.suffix.lower() == ".md":
+                headings = [line.lstrip("# ").strip() for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.startswith("#")][:40]
+            evidence.append({"path": relative, "sha256": file_digest(path), "headings": headings})
+        entries.append({"name": root.name, "path": str(root), "origin": origin, "evidence": evidence})
+    payload = {
+        "schemaVersion": 1,
+        "owner": args.owner,
+        "readOnly": True,
+        "remoteContentRead": False,
+        "projects": entries,
+    }
+    target = Path(args.output).expanduser().resolve()
+    write_json(target, payload)
+    print(target)
+
+
+def retrospective_files(root: Path) -> list[Path]:
+    files = []
+    for path in root.rglob("*.md"):
+        relative = path.relative_to(root)
+        if any(part in DISCOVERY_SKIPS for part in relative.parts):
+            continue
+        if path.name in RETROSPECTIVE_NAMES or "retrospective" in relative.as_posix().lower():
+            files.append(path)
+    return sorted(set(files))
+
+
+def parse_labeled_bullets(body: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    current: str | None = None
+    for line in body.splitlines():
+        stripped = line.strip()
+        bullet = re.match(r"^[-*]\s*(?:\*\*)?([^：:]+)(?:\*\*)?[：:]\s*(.*)$", stripped)
+        if bullet:
+            label = bullet.group(1).strip().lower()
+            current = next((key for key, aliases in RETROSPECTIVE_LABELS.items() if label in aliases), None)
+            if current:
+                fields[current] = bullet.group(2).strip()
+            continue
+        if current and stripped and not stripped.startswith("#"):
+            fields[current] = (fields[current] + " " + stripped).strip()
+    return fields
+
+
+def retrospective_sections(text: str) -> list[tuple[str, str]]:
+    matches = list(re.finditer(r"^##\s+(.+?)\s*$", text, re.M))
+    sections = []
+    for index, match in enumerate(matches):
+        title = match.group(1).strip()
+        if title.lower() in {"已证实事实", "影响", "预防动作", "是否升级为全局经验"}:
+            continue
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        sections.append((title, text[match.end():end].strip()))
+    if sections:
+        return sections
+    title = next((line[2:].strip() for line in text.splitlines() if line.startswith("# ")), "Untitled retrospective")
+    return [(title, text)] if parse_labeled_bullets(text) else []
+
+
+def normalized_fingerprint(value: str) -> str:
+    compact = re.sub(r"[^\w\u4e00-\u9fff]+", "", value.lower())
+    return hashlib.sha256(compact.encode("utf-8")).hexdigest()
+
+
+def redact_sensitive_evidence(value: str) -> tuple[str, bool]:
+    detected = bool(SENSITIVE_EVIDENCE_PATTERN.search(value))
+    return SENSITIVE_EVIDENCE_PATTERN.sub("[REDACTED]", value), detected
+
+
+def load_learning_registry(path: Path, owner: str) -> dict:
+    if not path.exists():
+        return {"schemaVersion": 1, "owner": owner, "candidates": [], "runs": []}
+    registry = json.loads(path.read_text(encoding="utf-8"))
+    if registry.get("schemaVersion") != 1 or registry.get("owner") != owner:
+        die("learning registry schema or owner mismatch")
+    if not isinstance(registry.get("candidates"), list) or not isinstance(registry.get("runs"), list):
+        die("invalid learning registry structure")
+    return registry
+
+
+def learning_harvest(args: argparse.Namespace) -> None:
+    roots = [project(value) for value in args.project]
+    registry_path = Path(args.registry).expanduser().resolve()
+    registry = load_learning_registry(registry_path, args.owner)
+    existing = {item["sourceFingerprint"]: item for item in registry["candidates"]}
+    seen: set[str] = set()
+    added = updated = 0
+    source_files = source_sections = 0
+    for root in roots:
+        origin = run_git(root, "remote", "get-url", "origin", check=False)
+        if github_origin_owner(origin or "") != args.owner:
+            die(f"project origin is not owned by {args.owner}: {root}")
+        for source in retrospective_files(root):
+            source_files += 1
+            relative = source.relative_to(root).as_posix()
+            source_text = source.read_text(encoding="utf-8", errors="replace")
+            for title, body in retrospective_sections(source_text):
+                source_sections += 1
+                fields = parse_labeled_bullets(body)
+                safe_excerpt, sensitive = redact_sensitive_evidence(body[: args.excerpt_chars])
+                safe_fields = {key: redact_sensitive_evidence(value)[0] for key, value in fields.items()}
+                source_key = f"{origin}\n{relative}\n{title}"
+                source_fingerprint = hashlib.sha256(source_key.encode("utf-8")).hexdigest()
+                content_fingerprint = hashlib.sha256((title + "\n" + body).encode("utf-8")).hexdigest()
+                missing = [name for name in REQUIRED_RETROSPECTIVE_FIELDS if not fields.get(name)]
+                candidate = {
+                    "id": "lrn-" + source_fingerprint[:16],
+                    "title": title,
+                    "project": root.name,
+                    "projectPath": str(root),
+                    "origin": origin,
+                    "sourcePath": relative,
+                    "sourceFingerprint": source_fingerprint,
+                    "contentFingerprint": content_fingerprint,
+                    "ruleFingerprint": normalized_fingerprint(safe_fields.get("rule") or title),
+                    "fields": safe_fields,
+                    "missingFields": missing,
+                    "ownerCorrectionPresent": bool(safe_fields.get("owner_correction")),
+                    "status": "blocked_sensitive" if sensitive else "needs_completion" if missing else "ready_for_review",
+                    "sensitiveEvidenceDetected": sensitive,
+                    "sourceExcerpt": safe_excerpt,
+                }
+                previous = existing.get(source_fingerprint)
+                if previous:
+                    if previous.get("contentFingerprint") == content_fingerprint:
+                        candidate = previous
+                    else:
+                        candidate["reviewHistory"] = previous.get("reviewHistory", [])
+                        candidate["status"] = "blocked_sensitive" if sensitive else "needs_re_review" if not missing else "needs_completion"
+                        updated += 1
+                else:
+                    added += 1
+                existing[source_fingerprint] = candidate
+                seen.add(source_fingerprint)
+    registry["candidates"] = sorted(existing.values(), key=lambda item: (item["origin"], item["sourcePath"], item["title"]))
+    counts = Counter(item["status"] for item in registry["candidates"])
+    run = {
+        "recordedAt": timestamp(), "projects": [str(item) for item in roots],
+        "sourceFiles": source_files, "sourceSections": source_sections,
+        "added": added, "updated": updated, "unchanged": source_sections - added - updated,
+        "statusCounts": dict(counts),
+    }
+    registry["runs"].append(run)
+    registry["updatedAt"] = run["recordedAt"]
+    write_json(registry_path, registry)
+    print(json.dumps(run, ensure_ascii=False, indent=2))
+
+
+def registry_candidate(registry: dict, candidate_id: str) -> dict:
+    candidate = next((item for item in registry["candidates"] if item["id"] == candidate_id), None)
+    if not candidate:
+        die(f"unknown learning candidate: {candidate_id}")
+    return candidate
+
+
+def learning_review(args: argparse.Namespace) -> None:
+    registry_path = Path(args.registry).expanduser().resolve()
+    registry = load_learning_registry(registry_path, args.owner)
+    candidate = registry_candidate(registry, args.candidate_id)
+    if candidate["status"] not in {"ready_for_review", "needs_re_review"}:
+        die(f"candidate is not reviewable: {candidate['status']}")
+    supporting = [candidate]
+    for candidate_id in args.supporting_id:
+        supporting.append(registry_candidate(registry, candidate_id))
+    unique_origins = {item["origin"] for item in supporting}
+    high_impact_owner_correction = args.owner_corrected and args.impact == "high" and candidate.get("ownerCorrectionPresent")
+    if args.decision == "promote" and len(unique_origins) < 2 and not high_impact_owner_correction:
+        die("promotion requires two source origins, or an explicit high-impact owner correction present in source evidence")
+    if args.decision == "promote" and (not args.rule.strip() or not args.verification.strip() or not args.scope.strip()):
+        die("promotion requires rule, scope, and verification")
+    now = timestamp()
+    review = {
+        "reviewedAt": now, "reviewer": args.reviewer, "decision": args.decision,
+        "reason": args.reason, "impact": args.impact, "scope": args.scope,
+        "rule": args.rule, "verification": args.verification,
+        "supportingCandidateIds": [item["id"] for item in supporting],
+        "sourceOrigins": sorted(unique_origins),
+        "ownerCorrected": bool(args.owner_corrected),
+    }
+    candidate.setdefault("reviewHistory", []).append(review)
+    candidate["review"] = review
+    candidate["status"] = {"promote": "approved_for_profile", "keep-project": "project_only", "reject": "rejected"}[args.decision]
+    registry["updatedAt"] = now
+    write_json(registry_path, registry)
+    print(json.dumps({"id": candidate["id"], "status": candidate["status"], "review": review}, ensure_ascii=False, indent=2))
+
+
+def learning_publish(args: argparse.Namespace) -> None:
+    registry_path = Path(args.registry).expanduser().resolve()
+    registry = load_learning_registry(registry_path, args.owner)
+    candidate = registry_candidate(registry, args.candidate_id)
+    profile = project(args.profile)
+    target = profile / "LEARNINGS.md"
+    if not target.is_file():
+        die(f"missing shared learning file: {target}")
+    marker = f"<!-- xds-learning:{candidate['id']} -->"
+    current = target.read_text(encoding="utf-8")
+    if candidate.get("status") == "published" and marker in current:
+        print(f"Already published: {candidate['id']}")
+        return
+    if candidate.get("status") != "approved_for_profile" or not candidate.get("review"):
+        die("only reviewed approved_for_profile candidates can be published")
+    if marker in current:
+        die("Profile contains the candidate marker but registry is not published; reconcile state manually")
+    review = candidate["review"]
+    evidence = ", ".join(f"{item['origin']}:{item['sourcePath']}" for item in [registry_candidate(registry, value) for value in review["supportingCandidateIds"]])
+    entry = f"""\n{marker}\n### {candidate['title']}\n\n- 分类：工程 / 协作\n- 规则：{review['rule']}\n- 证据：{evidence}\n- 适用范围：{review['scope']}\n- 验证：{review['verification']}\n- 最后验证：{review['reviewedAt'][:10]}\n"""
+    target.write_text(current.rstrip() + "\n" + entry, encoding="utf-8")
+    candidate["status"] = "published"
+    candidate["publishedAt"] = timestamp()
+    candidate["publishedTarget"] = str(target)
+    registry["updatedAt"] = candidate["publishedAt"]
+    write_json(registry_path, registry)
+    print(target)
+
+
+def goal_lint(args: argparse.Namespace) -> None:
+    document = Path(args.document).expanduser().resolve()
+    spec_path = Path(args.spec).expanduser().resolve()
+    if not document.is_file() or not spec_path.is_file():
+        die("goal lint requires an existing document and spec")
+    text = document.read_text(encoding="utf-8")
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    validate_goal_spec(spec)
+    requirements = {
+        "authoritative_entry": r"唯一权威|authoritative entry|authoritative document",
+        "current_facts": r"当前事实|current facts",
+        "scope": r"范围|scope",
+        "non_scope": r"不包含|非范围|out of scope|non-scope",
+        "phases": r"阶段|phase|阶段计划",
+        "evidence": r"证据|evidence",
+        "stop_conditions": r"停止条件|stop conditions?",
+        "completion_audit": r"completion audit|完成审计",
+        "launch_prompt": r"开 Goal|goal prompt|目标文本",
+    }
+    missing = [name for name, pattern in requirements.items() if not re.search(pattern, text, re.I)]
+    missing_task_ids = [task["id"] for task in spec["tasks"] if not re.search(rf"\b{re.escape(task['id'])}\b", text)]
+    payload = {
+        "schemaVersion": 1,
+        "document": str(document),
+        "spec": str(spec_path),
+        "taskCount": len(spec["tasks"]),
+        "missingSections": missing,
+        "missingTaskIds": missing_task_ids,
+        "verdict": "pass" if not missing and not missing_task_ids else "fail",
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    if payload["verdict"] != "pass":
+        raise SystemExit(1)
+
+
+def goal_directory(root: Path) -> Path:
+    return root / ".xds" / "goals"
+
+
+def goal_path(root: Path, goal_id: str) -> Path:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", goal_id):
+        die("goal id may contain only letters, numbers, dot, underscore, and dash")
+    return goal_directory(root) / f"{goal_id}.json"
+
+
+def validate_goal_spec(spec: dict) -> None:
+    required = ("id", "title", "objective", "tasks")
+    missing = [key for key in required if not spec.get(key)]
+    if missing:
+        die("goal spec missing: " + ", ".join(missing))
+    tasks = spec["tasks"]
+    if not isinstance(tasks, list) or not tasks:
+        die("goal spec requires at least one task")
+    ids = [task.get("id") for task in tasks]
+    if any(not value for value in ids) or len(ids) != len(set(ids)):
+        die("task ids must be present and unique")
+    known = set(ids)
+    for task in tasks:
+        if not task.get("title") or not task.get("acceptance"):
+            die(f"task {task.get('id', '?')} requires title and acceptance")
+        unknown = set(task.get("dependsOn", [])) - known
+        if unknown:
+            die(f"task {task['id']} has unknown dependencies: {', '.join(sorted(unknown))}")
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+    by_id = {task["id"]: task for task in tasks}
+
+    def visit(task_id: str) -> None:
+        if task_id in visiting:
+            die(f"goal task dependency cycle includes {task_id}")
+        if task_id in visited:
+            return
+        visiting.add(task_id)
+        for dependency in by_id[task_id].get("dependsOn", []):
+            visit(dependency)
+        visiting.remove(task_id)
+        visited.add(task_id)
+
+    for task_id in ids:
+        visit(task_id)
+
+
+def load_goal(root: Path, goal_id: str | None = None) -> tuple[Path, dict]:
+    if goal_id:
+        path = goal_path(root, goal_id)
+    else:
+        paths = sorted(goal_directory(root).glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True)
+        if not paths:
+            die("no goal found; run goal create first")
+        path = paths[0]
+    if not path.is_file():
+        die(f"goal does not exist: {path}")
+    return path, json.loads(path.read_text(encoding="utf-8"))
+
+
+def derive_goal(goal: dict) -> dict:
+    tasks = goal["tasks"]
+    verified = sum(task["status"] == "verified" for task in tasks)
+    running = next((task for task in tasks if task["status"] == "running"), None)
+    blocked = [task for task in tasks if task["status"] == "blocked"]
+    eligible = next((
+        task for task in tasks
+        if task["status"] == "pending"
+        and all(next(item for item in tasks if item["id"] == dependency)["status"] == "verified" for dependency in task.get("dependsOn", []))
+    ), None)
+    goal["progress"] = {"verified": verified, "total": len(tasks), "percent": round(verified * 100 / len(tasks))}
+    goal["currentTaskId"] = running["id"] if running else None
+    goal["nextTaskId"] = eligible["id"] if eligible else None
+    goal["status"] = "verified" if verified == len(tasks) else "blocked" if blocked and not running and not eligible else "active"
+    goal["updatedAt"] = timestamp()
+    return goal
+
+
+def goal_create(args: argparse.Namespace) -> None:
+    root = project(args.project)
+    spec_path = Path(args.spec).expanduser().resolve()
+    if not spec_path.is_file():
+        die(f"goal spec does not exist: {spec_path}")
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    validate_goal_spec(spec)
+    target = goal_path(root, spec["id"])
+    if target.exists():
+        die(f"goal already exists: {target}")
+    now = timestamp()
+    goal = {
+        "schemaVersion": 1,
+        "id": spec["id"],
+        "title": spec["title"],
+        "objective": spec["objective"],
+        "status": "active",
+        "createdAt": now,
+        "updatedAt": now,
+        "tasks": [{
+            "id": task["id"], "title": task["title"], "acceptance": task["acceptance"],
+            "dependsOn": task.get("dependsOn", []), "status": "pending", "evidence": []
+        } for task in spec["tasks"]],
+        "runs": [],
+        "blockers": [],
+    }
+    derive_goal(goal)
+    write_json(target, goal)
+    print(target)
+    goal_show_value(goal)
+
+
+def progress_bar(percent: int, width: int = 20) -> str:
+    filled = round(width * percent / 100)
+    return "[" + "#" * filled + "-" * (width - filled) + "]"
+
+
+def goal_show_value(goal: dict) -> None:
+    derive_goal(goal)
+    progress = goal["progress"]
+    print(f"Goal: {goal['title']} ({goal['id']})")
+    print(f"Status: {goal['status']}")
+    print(f"Progress: {progress_bar(progress['percent'])} {progress['percent']}% ({progress['verified']}/{progress['total']})")
+    print(f"Current: {goal.get('currentTaskId') or 'none'}")
+    print(f"Next: {goal.get('nextTaskId') or 'none'}")
+    blockers = [task["id"] for task in goal["tasks"] if task["status"] == "blocked"]
+    print(f"Blocked: {', '.join(blockers) or 'none'}")
+    for task in goal["tasks"]:
+        marker = {"verified": "x", "running": ">", "blocked": "!", "failed": "!", "pending": " "}[task["status"]]
+        print(f"  [{marker}] {task['id']} {task['title']} - {task['status']}")
+
+
+def goal_show(args: argparse.Namespace) -> None:
+    root = project(args.project)
+    _, goal = load_goal(root, args.goal)
+    goal_show_value(goal)
+
+
+def find_task(goal: dict, task_id: str) -> dict:
+    task = next((item for item in goal["tasks"] if item["id"] == task_id), None)
+    if not task:
+        die(f"unknown task: {task_id}")
+    return task
+
+
+def latest_run(goal: dict, task_id: str) -> dict:
+    run = next((item for item in reversed(goal["runs"]) if item["taskId"] == task_id and item["status"] == "running"), None)
+    if not run:
+        die(f"task {task_id} has no running execution")
+    return run
+
+
+def save_goal(path: Path, goal: dict) -> None:
+    derive_goal(goal)
+    write_json(path, goal)
+
+
+def goal_task_start(args: argparse.Namespace) -> None:
+    root = project(args.project)
+    path, goal = load_goal(root, args.goal)
+    task = find_task(goal, args.task)
+    if task["status"] != "pending":
+        die(f"task {task['id']} is {task['status']}, expected pending")
+    if any(item["status"] == "running" for item in goal["tasks"]):
+        die("another task is already running")
+    unmet = [dependency for dependency in task.get("dependsOn", []) if find_task(goal, dependency)["status"] != "verified"]
+    if unmet:
+        die("unverified dependencies: " + ", ".join(unmet))
+    now = timestamp()
+    task["status"] = "running"
+    task["startedAt"] = now
+    goal["runs"].append({"id": f"run-{len(goal['runs']) + 1}", "taskId": task["id"], "status": "running", "startedAt": now})
+    save_goal(path, goal)
+    goal_show_value(goal)
+
+
+def goal_task_verify(args: argparse.Namespace) -> None:
+    root = project(args.project)
+    path, goal = load_goal(root, args.goal)
+    task = find_task(goal, args.task)
+    if task["status"] != "running":
+        die(f"task {task['id']} is {task['status']}, expected running")
+    if args.evidence_type not in EVIDENCE_TYPES or not args.evidence.strip():
+        die("verified tasks require non-empty evidence")
+    now = timestamp()
+    evidence = {"id": f"evidence-{sum(len(item['evidence']) for item in goal['tasks']) + 1}", "type": args.evidence_type, "value": args.evidence.strip(), "recordedAt": now}
+    task["evidence"].append(evidence)
+    task["status"] = "verified"
+    task["completedAt"] = now
+    run = latest_run(goal, task["id"])
+    run.update({"status": "verified", "completedAt": now, "evidenceIds": [evidence["id"]]})
+    save_goal(path, goal)
+    goal_show_value(goal)
+
+
+def goal_task_stop(args: argparse.Namespace) -> None:
+    root = project(args.project)
+    path, goal = load_goal(root, args.goal)
+    task = find_task(goal, args.task)
+    if task["status"] != "running":
+        die(f"task {task['id']} is {task['status']}, expected running")
+    if not args.reason.strip():
+        die(f"{args.status} requires a reason")
+    now = timestamp()
+    task["status"] = args.status
+    task["reason"] = args.reason.strip()
+    run = latest_run(goal, task["id"])
+    run.update({"status": args.status, "completedAt": now, "reason": args.reason.strip()})
+    if args.status == "blocked":
+        goal["blockers"].append({"taskId": task["id"], "reason": args.reason.strip(), "recordedAt": now})
+    save_goal(path, goal)
+    goal_show_value(goal)
+
+
 def runtime_python(root: Path, config: dict, name: str) -> Path:
     suffix = "Scripts/python.exe" if os.name == "nt" else "bin/python"
     return root / ".xds" / "venvs" / name / suffix
@@ -85,7 +662,7 @@ def detect_adapter(root: Path) -> dict[str, str]:
         elif (root / "yarn.lock").exists():
             runner = "yarn"
         start_script = next((name for name in ("dev", "start", "preview") if name in scripts), "")
-        doctor_script = next((name for name in ("verify", "test", "check", "lint", "build") if name in scripts), "")
+        doctor_script = next((name for name in ("doctor", "verify", "test", "check", "lint", "build") if name in scripts), "")
         start = f"{runner} run {start_script}" if start_script else ""
         doctor = f"{runner} run {doctor_script}" if doctor_script else ""
         return {"manager": "uv", "python": "3.11", "startCommand": start, "doctorCommand": doctor}
@@ -415,6 +992,56 @@ jobs:
     print(weekly_workflow)
 
 
+def personal_learning_automation_path(codex_home: Path) -> tuple[Path, int]:
+    automations_root = codex_home / "automations"
+    matches = []
+    if automations_root.is_dir():
+        for path in automations_root.glob("*/automation.toml"):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if 'id = "weekly-personal-dev-system"' in text or 'name = "每周个人开发系统回顾"' in text:
+                matches.append(path)
+    if len(matches) > 1:
+        die("multiple personal learning automations exist; review duplicates before ensuring")
+    return (matches[0] if matches else automations_root / "weekly-personal-dev-system" / "automation.toml", len(matches))
+
+
+def automation_learning_ensure(args: argparse.Namespace) -> None:
+    workspace = project(args.workspace)
+    codex_home = Path(args.codex_home).expanduser().resolve()
+    prompt_path = Path(__file__).resolve().parents[1] / "automations" / "weekly-personal-dev-system.prompt.md"
+    if not prompt_path.is_file():
+        die(f"missing versioned automation prompt: {prompt_path}")
+    target, existing_count = personal_learning_automation_path(codex_home)
+    previous = target.read_text(encoding="utf-8") if target.exists() else ""
+    created_match = re.search(r"^created_at\s*=\s*(\d+)$", previous, re.M)
+    now = int(time.time() * 1000)
+    created_at = int(created_match.group(1)) if created_match else now
+    target.parent.mkdir(parents=True, exist_ok=True)
+    prompt = prompt_path.read_text(encoding="utf-8")
+    target.write_text("\n".join([
+        "version = 1",
+        'id = "weekly-personal-dev-system"',
+        'kind = "cron"',
+        'name = "每周个人开发系统回顾"',
+        f"prompt = {json.dumps(prompt, ensure_ascii=False)}",
+        'status = "ACTIVE"',
+        'rrule = "FREQ=WEEKLY;BYDAY=MO;BYHOUR=8;BYMINUTE=0"',
+        'model = "gpt-5.6-terra"',
+        'reasoning_effort = "high"',
+        'execution_environment = "local"',
+        f"target = {{ type = \"project\", project_id = {json.dumps(str(workspace))} }}",
+        f"cwds = [{json.dumps(str(workspace))}]",
+        f"created_at = {created_at}",
+        f"updated_at = {now}",
+        "",
+    ]), encoding="utf-8")
+    print(json.dumps({
+        "status": "updated" if existing_count else "created",
+        "automation": str(target), "workspace": str(workspace),
+        "id": "weekly-personal-dev-system", "duplicateCount": 0,
+    }, ensure_ascii=False, indent=2))
+
+
 def weekly_review(args: argparse.Namespace) -> None:
     root = project(args.project)
     config = load(root)
@@ -601,6 +1228,8 @@ def main() -> None:
     profile_parser = sub.add_parser("profile"); profile_sub = profile_parser.add_subparsers(required=True)
     sync_parser = profile_sub.add_parser("sync"); sync_parser.add_argument("--target"); sync_parser.add_argument("--repo"); sync_parser.set_defaults(func=profile_sync)
     doctor_parser = sub.add_parser("doctor"); doctor_parser.add_argument("--project", required=True); doctor_parser.set_defaults(func=doctor)
+    projects_parser = sub.add_parser("projects"); projects_sub = projects_parser.add_subparsers(required=True)
+    discover_parser = projects_sub.add_parser("discover"); discover_parser.add_argument("--owner", required=True); discover_parser.add_argument("--root", action="append", required=True); discover_parser.add_argument("--max-depth", type=int, default=6); discover_parser.add_argument("--output"); discover_parser.set_defaults(func=projects_discover)
     updates_parser = sub.add_parser("updates"); updates_parser.add_argument("--project", required=True); updates_parser.add_argument("--date", default=dt.date.today().isoformat()); updates_parser.set_defaults(func=updates)
     runtime_parser = sub.add_parser("runtime"); runtime_sub = runtime_parser.add_subparsers(required=True)
     prepare_parser = runtime_sub.add_parser("prepare"); prepare_parser.add_argument("--project", required=True); prepare_parser.add_argument("--name"); prepare_parser.set_defaults(func=runtime_prepare)
@@ -608,14 +1237,28 @@ def main() -> None:
     create_parser = workspace_sub.add_parser("create"); create_parser.add_argument("--project", required=True); create_parser.add_argument("--branch", required=True); create_parser.add_argument("--base", default="origin/main"); create_parser.set_defaults(func=workspace_create)
     automation_parser = sub.add_parser("automation"); automation_sub = automation_parser.add_subparsers(required=True)
     install_parser = automation_sub.add_parser("install"); install_parser.add_argument("--project", required=True); install_parser.add_argument("--force", action="store_true"); install_parser.set_defaults(func=automation_install)
+    learning_automation_parser = automation_sub.add_parser("ensure-learning"); learning_automation_parser.add_argument("--workspace", required=True); learning_automation_parser.add_argument("--codex-home", default=os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))); learning_automation_parser.set_defaults(func=automation_learning_ensure)
     review_parser = sub.add_parser("weekly-review"); review_parser.add_argument("--project", required=True); review_parser.add_argument("--date", default=dt.date.today().isoformat()); review_parser.set_defaults(func=weekly_review)
     acceptance_parser = sub.add_parser("acceptance"); acceptance_parser.add_argument("--project", required=True); acceptance_parser.add_argument("--date", default=dt.date.today().isoformat()); acceptance_parser.set_defaults(func=acceptance)
     learning_parser = sub.add_parser("learning"); learning_sub = learning_parser.add_subparsers(required=True)
     candidate_parser = learning_sub.add_parser("candidate"); candidate_parser.add_argument("--project", required=True); candidate_parser.add_argument("--date", default=dt.date.today().isoformat()); candidate_parser.add_argument("--force", action="store_true"); candidate_parser.set_defaults(func=learning_candidate)
+    portfolio_parser = learning_sub.add_parser("portfolio"); portfolio_parser.add_argument("--owner", required=True); portfolio_parser.add_argument("--project", action="append", required=True); portfolio_parser.add_argument("--output", required=True); portfolio_parser.set_defaults(func=learning_portfolio)
+    harvest_parser = learning_sub.add_parser("harvest"); harvest_parser.add_argument("--owner", required=True); harvest_parser.add_argument("--project", action="append", required=True); harvest_parser.add_argument("--registry", required=True); harvest_parser.add_argument("--excerpt-chars", type=int, default=1200); harvest_parser.set_defaults(func=learning_harvest)
+    review_learning_parser = learning_sub.add_parser("review"); review_learning_parser.add_argument("--owner", required=True); review_learning_parser.add_argument("--registry", required=True); review_learning_parser.add_argument("--candidate-id", required=True); review_learning_parser.add_argument("--supporting-id", action="append", default=[]); review_learning_parser.add_argument("--decision", choices=["promote", "keep-project", "reject"], required=True); review_learning_parser.add_argument("--reviewer", required=True); review_learning_parser.add_argument("--reason", required=True); review_learning_parser.add_argument("--impact", choices=["low", "medium", "high"], required=True); review_learning_parser.add_argument("--scope", default=""); review_learning_parser.add_argument("--rule", default=""); review_learning_parser.add_argument("--verification", default=""); review_learning_parser.add_argument("--owner-corrected", action="store_true"); review_learning_parser.set_defaults(func=learning_review)
+    publish_parser = learning_sub.add_parser("publish"); publish_parser.add_argument("--owner", required=True); publish_parser.add_argument("--registry", required=True); publish_parser.add_argument("--candidate-id", required=True); publish_parser.add_argument("--profile", required=True); publish_parser.set_defaults(func=learning_publish)
     promote_parser = learning_sub.add_parser("promote"); promote_parser.add_argument("--candidate", required=True); promote_parser.add_argument("--profile", required=True); promote_parser.add_argument("--title", required=True); promote_parser.add_argument("--category", required=True); promote_parser.add_argument("--rule", required=True); promote_parser.add_argument("--scope", required=True); promote_parser.add_argument("--evidence", required=True); promote_parser.add_argument("--date", default=dt.date.today().isoformat()); promote_parser.set_defaults(func=learning_promote)
     preview_parser = sub.add_parser("preview"); preview_sub = preview_parser.add_subparsers(required=True)
     start_parser = preview_sub.add_parser("start"); start_parser.add_argument("--project", required=True); start_parser.add_argument("--name"); start_parser.add_argument("--command"); start_parser.add_argument("--data-namespace"); start_parser.set_defaults(func=preview_start)
     stop_parser = preview_sub.add_parser("stop"); stop_parser.add_argument("--project", required=True); stop_parser.add_argument("--name"); stop_parser.set_defaults(func=preview_stop)
+    goal_parser = sub.add_parser("goal"); goal_sub = goal_parser.add_subparsers(required=True)
+    goal_create_parser = goal_sub.add_parser("create"); goal_create_parser.add_argument("--project", default="."); goal_create_parser.add_argument("--spec", required=True); goal_create_parser.set_defaults(func=goal_create)
+    goal_show_parser = goal_sub.add_parser("show"); goal_show_parser.add_argument("--project", default="."); goal_show_parser.add_argument("--goal"); goal_show_parser.set_defaults(func=goal_show)
+    goal_lint_parser = goal_sub.add_parser("lint"); goal_lint_parser.add_argument("--document", required=True); goal_lint_parser.add_argument("--spec", required=True); goal_lint_parser.set_defaults(func=goal_lint)
+    goal_task_parser = goal_sub.add_parser("task"); goal_task_sub = goal_task_parser.add_subparsers(required=True)
+    task_start_parser = goal_task_sub.add_parser("start"); task_start_parser.add_argument("--project", default="."); task_start_parser.add_argument("--goal", required=True); task_start_parser.add_argument("--task", required=True); task_start_parser.set_defaults(func=goal_task_start)
+    task_verify_parser = goal_task_sub.add_parser("verify"); task_verify_parser.add_argument("--project", default="."); task_verify_parser.add_argument("--goal", required=True); task_verify_parser.add_argument("--task", required=True); task_verify_parser.add_argument("--evidence-type", choices=sorted(EVIDENCE_TYPES), required=True); task_verify_parser.add_argument("--evidence", required=True); task_verify_parser.set_defaults(func=goal_task_verify)
+    for action in ("block", "fail"):
+        task_stop_parser = goal_task_sub.add_parser(action); task_stop_parser.add_argument("--project", default="."); task_stop_parser.add_argument("--goal", required=True); task_stop_parser.add_argument("--task", required=True); task_stop_parser.add_argument("--reason", required=True); task_stop_parser.set_defaults(func=goal_task_stop, status="blocked" if action == "block" else "failed")
     args = parser.parse_args(); args.func(args)
 
 

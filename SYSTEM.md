@@ -11,6 +11,17 @@ The only user-facing system name is `xixi-dev-system`.
 | `.xixi-dev-system.json` | Per-project adapter contract. |
 | `.xds/` | Generated local runtime state, reports, logs, and worktrees. |
 
+## Goal state authority
+
+`xixi-dev-system goal` is the single durable authority for long-running task
+state. A Goal contains ordered Tasks, execution Runs, Evidence, and Blockers.
+The CLI derives current task, next task, terminal status, and progress. Reports
+and dashboards may render this state but must not maintain a parallel status.
+
+The host Codex Goal and plan provide the live progress surface. Agents must
+mirror each start, verify, block, and fail transition into `.xds/goals/` so a
+new thread can continue without reconstructing state from chat.
+
 Existing profile, acceptance factory, and quality hub repositories are internal
 dependencies or display surfaces, not separate commands the user must remember.
 
@@ -37,9 +48,26 @@ rerun the acceptance command and records its evidence in the report.
 ## Learning Promotion
 
 `learning candidate` converts a non-pass or repaired acceptance report into a
-project retrospective candidate. `learning promote` writes a reviewed rule to
-the shared Profile `LEARNINGS.md`. Promotion is deliberately explicit: one-off
-failures cannot automatically change cross-project guidance.
+project retrospective candidate. `learning harvest` reads project
+retrospectives without modifying them and stores source/content fingerprints,
+parsed fields, missing-field gates, and review state in a local registry.
+
+Harvesting, review, and publication are separate authorities:
+
+1. Harvesting may discover and structure candidates only.
+2. Review requires two source origins, or source evidence of an owner
+   correction plus an explicit high-impact decision.
+3. Publication accepts only `approved_for_profile`, records a stable marker in
+   `LEARNINGS.md`, and is idempotent.
+
+Changed source content invalidates the prior review with `needs_re_review`.
+Incomplete legacy entries remain `needs_completion`. One-off failures and raw
+automation output cannot automatically change cross-project guidance.
+
+The personal learning automation has one stable id,
+`weekly-personal-dev-system`. Repository entry instructions, local install, and
+new-machine bootstrap all converge on `automation ensure-learning`; duplicates
+cause a reviewable failure instead of another task being created.
 
 ## Isolated Python
 

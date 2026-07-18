@@ -11,10 +11,18 @@
 - Verified: disposable Git repository produced a multi-branch update report;
   preview received an unused localhost port and data namespace, served HTTP, and
   stopped cleanly.
+- Goal kernel v1 implemented: bounded Goal specs, dependency-ordered Tasks,
+  execution Runs, evidence-gated verification, blockers, derived progress, and
+  CDS Goal lint are covered by tests.
+- Evidence learning v1 implemented: owner-scoped local project discovery,
+  read-only evidence portfolios, retrospective harvesting, stable fingerprints,
+  missing/change/zero-state handling, human promotion gates, and idempotent
+  Profile publication are available on `cx/goal-state-kernel-v1`.
+- Automation restore implemented: repository `AGENTS.md`, install artifacts,
+  and new-machine bootstrap converge on one versioned personal learning task.
 - Gongtu: adapter and isolated SQLite namespace configuration are in PR #10;
   runtime start is correctly blocked until uv prepares Python 3.11.
-- Not yet complete: scheduled ledger/report publishing, scoped acceptance,
-  repair PR policy integration, weekly promotion, quality hub integration, and
-  fresh-machine portability test.
+- Not yet complete: automatic PR merge policy, quality hub integration, and a
+  fresh second-machine acceptance run outside temporary-directory simulation.
 - Safety: Gongtu PR #9 remains open and unmerged. Do not merge it while the
   system redesign is in progress.

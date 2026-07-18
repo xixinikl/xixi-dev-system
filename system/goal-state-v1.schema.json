@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Xixi Goal State v1",
+  "type": "object",
+  "required": ["schemaVersion", "id", "title", "objective", "status", "progress", "tasks", "runs", "blockers"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+    "title": { "type": "string", "minLength": 1 },
+    "objective": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["active", "blocked", "verified"] },
+    "progress": {
+      "type": "object",
+      "required": ["verified", "total", "percent"]
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "acceptance", "dependsOn", "status", "evidence"],
+        "properties": {
+          "status": { "enum": ["pending", "running", "blocked", "failed", "verified"] },
+          "evidence": { "type": "array" }
+        }
+      }
+    },
+    "runs": { "type": "array" },
+    "blockers": { "type": "array" }
+  }
+}
