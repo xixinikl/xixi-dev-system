@@ -1,4 +1,6 @@
 import argparse
+import contextlib
+import io
 import json
 import subprocess
 import tempfile
@@ -60,6 +62,31 @@ class OnboardTests(unittest.TestCase):
             detected = xds.detect_adapter(root)
 
             self.assertEqual(detected["doctorCommand"], "npm run doctor")
+
+    def test_doctor_accepts_a_fresh_clone_before_runtime_reports_exist(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-b", "main", root], check=True, capture_output=True)
+            (root / xds.CONFIG).write_text(json.dumps({
+                "schemaVersion": 1,
+                "projectName": "fresh-clone",
+                "repository": "https://github.com/xixinikl/fresh-clone.git",
+                "defaultBranch": "main",
+                "runtime": {
+                    "manager": "uv",
+                    "startCommand": "python3 -m http.server $PORT",
+                    "doctorCommand": "git diff --check",
+                    "workingDirectory": ".",
+                },
+            }), encoding="utf-8")
+            output = io.StringIO()
+
+            with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as result:
+                xds.doctor(argparse.Namespace(project=str(root)))
+
+            self.assertEqual(result.exception.code, 0)
+            self.assertIn("report-directory: ready", output.getvalue())
+            self.assertFalse((root / ".xds").exists())
 
     def test_profile_sync_clones_and_fast_forwards(self):
         with tempfile.TemporaryDirectory() as directory:

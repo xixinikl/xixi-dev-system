@@ -15,6 +15,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -768,11 +769,14 @@ def doctor(args: argparse.Namespace) -> None:
     missing = [key for key in needed if not config.get(key)]
     missing.extend(f"runtime.{key}" for key in ("manager", "startCommand", "doctorCommand", "workingDirectory") if not runtime.get(key))
     git_ok = run_git(root, "rev-parse", "--is-inside-work-tree", check=False) == "true"
-    reports_ok = (root / ".xds" / "reports" / "updates").is_dir()
+    reports_path = root / ".xds" / "reports" / "updates"
+    report_parents = (root / ".xds", root / ".xds" / "reports", reports_path)
+    reports_ok = not any(path.exists() and not path.is_dir() for path in report_parents)
+    reports_status = "pass" if reports_path.is_dir() else "ready" if reports_ok else "fail"
     print(f"project: {config.get('projectName', 'unknown')}")
     print(f"git: {'pass' if git_ok else 'fail'}")
     print(f"adapter: {'pass' if not missing else 'fail'}")
-    print(f"report-directory: {'pass' if reports_ok else 'fail'}")
+    print(f"report-directory: {reports_status}")
     if missing:
         print("missing: " + ", ".join(missing))
     ok = git_ok and reports_ok and not missing
@@ -1216,6 +1220,81 @@ def preview_stop(args: argparse.Namespace) -> None:
     print(f"Stopped {state['url']}")
 
 
+def dashboard_register(args: argparse.Namespace) -> None:
+    from dashboard_server import REGISTRY_PATH, register_project
+
+    entry = register_project(
+        project(args.project),
+        args.name,
+        project_id=args.id,
+        description=args.description,
+        preview_path=args.preview_path,
+        preview_command=args.preview_command,
+        isolation=args.isolation,
+        registry_path=Path(args.registry).expanduser().resolve() if args.registry else REGISTRY_PATH,
+    )
+    print(json.dumps(entry, ensure_ascii=False, indent=2))
+
+
+def dashboard_show(args: argparse.Namespace) -> None:
+    from dashboard_server import REGISTRY_PATH, RUNTIME_PATH, load_registry, project_summary
+
+    registry_path = Path(args.registry).expanduser().resolve() if args.registry else REGISTRY_PATH
+    registry = load_registry(registry_path)
+    projects = [project_summary(entry, RUNTIME_PATH) for entry in registry["projects"]]
+    print(json.dumps({"projects": projects}, ensure_ascii=False, indent=2))
+
+
+def dashboard_start(args: argparse.Namespace) -> None:
+    from dashboard_server import DEFAULT_HOME, REGISTRY_PATH, RUNTIME_PATH, is_alive
+
+    DEFAULT_HOME.mkdir(parents=True, exist_ok=True)
+    state_path = DEFAULT_HOME / "dashboard.json"
+    if state_path.is_file():
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        if is_alive(state.get("pid")):
+            print(json.dumps(state, ensure_ascii=False, indent=2))
+            if args.open:
+                subprocess.Popen(["open", state["url"]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+        state_path.unlink()
+    port = args.port or free_port()
+    registry = Path(args.registry).expanduser().resolve() if args.registry else REGISTRY_PATH
+    log_path = DEFAULT_HOME / "dashboard.log"
+    command = [
+        sys.executable,
+        str(Path(__file__).with_name("dashboard_server.py")),
+        "--port", str(port),
+        "--registry", str(registry),
+        "--runtime", str(RUNTIME_PATH),
+    ]
+    with log_path.open("w", encoding="utf-8") as log:
+        process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    if not wait_for_port(process, port):
+        die(f"dashboard did not become ready; inspect {log_path}")
+    state = {"pid": process.pid, "url": f"http://127.0.0.1:{port}", "port": port, "registry": str(registry), "log": str(log_path)}
+    write_json(state_path, state)
+    if args.open:
+        subprocess.Popen(["open", state["url"]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    print(json.dumps(state, ensure_ascii=False, indent=2))
+
+
+def dashboard_stop(args: argparse.Namespace) -> None:
+    from dashboard_server import DEFAULT_HOME
+
+    state_path = DEFAULT_HOME / "dashboard.json"
+    if not state_path.is_file():
+        print("Dashboard is not running.")
+        return
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    try:
+        os.killpg(int(state["pid"]), signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    state_path.unlink(missing_ok=True)
+    print(f"Stopped {state['url']}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="xixi-dev-system")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1250,6 +1329,11 @@ def main() -> None:
     preview_parser = sub.add_parser("preview"); preview_sub = preview_parser.add_subparsers(required=True)
     start_parser = preview_sub.add_parser("start"); start_parser.add_argument("--project", required=True); start_parser.add_argument("--name"); start_parser.add_argument("--command"); start_parser.add_argument("--data-namespace"); start_parser.set_defaults(func=preview_start)
     stop_parser = preview_sub.add_parser("stop"); stop_parser.add_argument("--project", required=True); stop_parser.add_argument("--name"); stop_parser.set_defaults(func=preview_stop)
+    dashboard_parser = sub.add_parser("dashboard"); dashboard_sub = dashboard_parser.add_subparsers(required=True)
+    dashboard_register_parser = dashboard_sub.add_parser("register"); dashboard_register_parser.add_argument("--project", required=True); dashboard_register_parser.add_argument("--name", required=True); dashboard_register_parser.add_argument("--id"); dashboard_register_parser.add_argument("--description", default=""); dashboard_register_parser.add_argument("--preview-path", default="/"); dashboard_register_parser.add_argument("--preview-command", default=""); dashboard_register_parser.add_argument("--isolation", choices=["namespace", "shared", "frontend-only"], default="namespace"); dashboard_register_parser.add_argument("--registry"); dashboard_register_parser.set_defaults(func=dashboard_register)
+    dashboard_show_parser = dashboard_sub.add_parser("show"); dashboard_show_parser.add_argument("--registry"); dashboard_show_parser.set_defaults(func=dashboard_show)
+    dashboard_start_parser = dashboard_sub.add_parser("start"); dashboard_start_parser.add_argument("--port", type=int); dashboard_start_parser.add_argument("--registry"); dashboard_start_parser.add_argument("--open", action="store_true"); dashboard_start_parser.set_defaults(func=dashboard_start)
+    dashboard_stop_parser = dashboard_sub.add_parser("stop"); dashboard_stop_parser.set_defaults(func=dashboard_stop)
     goal_parser = sub.add_parser("goal"); goal_sub = goal_parser.add_subparsers(required=True)
     goal_create_parser = goal_sub.add_parser("create"); goal_create_parser.add_argument("--project", default="."); goal_create_parser.add_argument("--spec", required=True); goal_create_parser.set_defaults(func=goal_create)
     goal_show_parser = goal_sub.add_parser("show"); goal_show_parser.add_argument("--project", default="."); goal_show_parser.add_argument("--goal"); goal_show_parser.set_defaults(func=goal_show)

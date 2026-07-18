@@ -1,0 +1,35 @@
+{
+  "id": "branch-preview-dashboard-v1",
+  "title": "Xixi branch preview dashboard",
+  "objective": "Provide one clear local webpage where the owner can inspect projects and branches, start an isolated preview with one click, and open the running result without remembering ports or commands.",
+  "tasks": [
+    {
+      "id": "D1",
+      "title": "Define registered project and branch status model",
+      "acceptance": "A local registry stores selected projects without committing machine-specific paths, and the API reports current branch, recent branches, dirty state, and last commit."
+    },
+    {
+      "id": "D2",
+      "title": "Implement isolated branch preview lifecycle",
+      "acceptance": "A registered branch can reuse its checkout or obtain a detached worktree, then start and stop on a unique port with a branch-specific data namespace.",
+      "dependsOn": ["D1"]
+    },
+    {
+      "id": "D3",
+      "title": "Build the project preview center",
+      "acceptance": "The responsive webpage presents projects first, reveals branch details on demand, and uses one primary action to start or open a preview with visible loading and error states.",
+      "dependsOn": ["D2"]
+    },
+    {
+      "id": "D4",
+      "title": "Register the three active owner projects",
+      "acceptance": "Gongtu, CanvasStorm, and Code Quest appear with their real local branch state and explicit preview isolation capability."
+    },
+    {
+      "id": "D5",
+      "title": "Verify and publish evidence",
+      "acceptance": "Unit tests, HTTP API checks, and browser screenshots prove the dashboard and at least one real branch preview; documentation records limitations and next actions.",
+      "dependsOn": ["D3", "D4"]
+    }
+  ]
+}

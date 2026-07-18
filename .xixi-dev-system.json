@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "projectName": "xixi-dev-system",
+  "repository": "https://github.com/xixinikl/xixi-dev-system.git",
+  "defaultBranch": "main",
+  "runtime": {
+    "manager": "uv",
+    "python": "3.11",
+    "startCommand": "python3 scripts/dashboard_server.py --port \"$PORT\"",
+    "doctorCommand": "python3 -m unittest discover -s tests -v",
+    "portEnvironment": "PORT",
+    "dataNamespaceEnvironment": "XDS_DATA_NAMESPACE",
+    "workingDirectory": ".",
+    "requirements": []
+  },
+  "collaboration": {
+    "focusAuthors": [],
+    "riskPathPatterns": [
+      "auth",
+      "payment",
+      "migration",
+      "deploy",
+      "secret"
+    ]
+  },
+  "quality": {
+    "acceptanceCommand": "python3 -m unittest discover -s tests -v",
+    "autofixCommand": "",
+    "autofixPaths": []
+  },
+  "learning": {
+    "projectRetrospectiveDirectory": "doc/retrospectives",
+    "sharedProfileRepository": "https://github.com/xixinikl/xixi-agent-profile"
+  }
+}
