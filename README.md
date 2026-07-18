@@ -32,6 +32,10 @@ bin/bootstrap-new-machine.sh --workspace "/path/to/your/Codex/workspace"
 bin/system-doctor.sh
 ```
 
+For the current three-project realtime-preview handoff, including the status of
+the related project branches, follow
+[`docs/HANDOFF_NEW_COMPUTER_REALTIME_PREVIEW.zh-CN.md`](docs/HANDOFF_NEW_COMPUTER_REALTIME_PREVIEW.zh-CN.md).
+
 The authoritative repository and installation inventory is
 [`system/system-manifest.json`](system/system-manifest.json). The weekly prompt
 is versioned in [`automations/`](automations/) instead of living only on one

@@ -136,18 +136,25 @@ def register_project(
     return entry
 
 
-def parse_worktrees(root: Path) -> dict[str, Path]:
+def worktree_records(root: Path) -> list[dict]:
     lines = git(root, "worktree", "list", "--porcelain").splitlines()
-    mapping: dict[str, Path] = {}
-    current_path: Path | None = None
+    records: list[dict] = []
+    current: dict | None = None
     for line in lines + [""]:
         if line.startswith("worktree "):
-            current_path = Path(line[9:])
-        elif line.startswith("branch refs/heads/") and current_path:
-            mapping[line.removeprefix("branch refs/heads/")] = current_path
-        elif not line:
-            current_path = None
-    return mapping
+            current = {"path": Path(line[9:]).resolve(), "branch": "", "detached": False}
+        elif line.startswith("branch refs/heads/") and current:
+            current["branch"] = line.removeprefix("branch refs/heads/")
+        elif line == "detached" and current:
+            current["detached"] = True
+        elif not line and current:
+            records.append(current)
+            current = None
+    return records
+
+
+def parse_worktrees(root: Path) -> dict[str, Path]:
+    return {record["branch"]: record["path"] for record in worktree_records(root) if record["branch"]}
 
 
 def branches(root: Path, limit: int = 12) -> list[dict]:
@@ -172,6 +179,7 @@ def branches(root: Path, limit: int = 12) -> list[dict]:
             "committedAt": committed_at,
             "current": name == current,
             "checkedOut": str(worktrees[name]) if name in worktrees else "",
+            "previewMode": "live" if name in worktrees else "snapshot",
         })
         if len(values) >= limit:
             break
@@ -229,11 +237,20 @@ def resolve_branch_root(root: Path, branch: str) -> tuple[Path, bool]:
 
 
 def command_for(entry: dict, root: Path) -> tuple[str, dict]:
-    adapter = json.loads((Path(entry["path"]) / ".xixi-dev-system.json").read_text(encoding="utf-8"))
+    adapter_path = root / ".xixi-dev-system.json"
+    if not adapter_path.is_file():
+        adapter_path = Path(entry["path"]) / ".xixi-dev-system.json"
+    adapter = json.loads(adapter_path.read_text(encoding="utf-8"))
     runtime = adapter.get("runtime", {})
     command = entry.get("previewCommand") or runtime.get("previewCommand") or runtime.get("startCommand")
     if not command:
         raise RuntimeError("项目尚未配置预览命令")
+    if "{python}" in command:
+        suffix = Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python")
+        python = root / ".xds" / "venvs" / "default" / suffix
+        if not python.is_file():
+            raise RuntimeError(f"隔离 Python 尚未准备：{python}")
+        command = command.replace("{python}", shlex.quote(str(python)))
     return command, adapter
 
 
@@ -241,7 +258,7 @@ def same_file(left: Path, right: Path) -> bool:
     return left.is_file() and right.is_file() and hashlib.sha256(left.read_bytes()).digest() == hashlib.sha256(right.read_bytes()).digest()
 
 
-def prepare_dependencies(source: Path, branch_root: Path) -> None:
+def prepare_dependencies(source: Path, branch_root: Path, environment: dict | None = None) -> None:
     if not (branch_root / "package.json").is_file() or (branch_root / "node_modules").exists():
         return
     source_modules = source / "node_modules"
@@ -258,9 +275,14 @@ def prepare_dependencies(source: Path, branch_root: Path) -> None:
         command = ["npm", "ci", "--no-audit", "--no-fund"]
     else:
         command = ["npm", "install", "--no-audit", "--no-fund"]
-    result = subprocess.run(command, cwd=branch_root, text=True, capture_output=True)
+    result = subprocess.run(command, cwd=branch_root, env=environment, text=True, capture_output=True)
     if result.returncode:
         raise RuntimeError(f"依赖准备失败：{result.stderr.strip() or result.stdout.strip()}")
+
+
+def bundled_node_bin(home: Path = Path.home()) -> Path | None:
+    candidate = home / ".cache" / "codex-runtimes" / "codex-primary-runtime" / "dependencies" / "node" / "bin"
+    return candidate if (candidate / "node").is_file() else None
 
 
 def start_preview(entry: dict, branch: str, runtime_path: Path = RUNTIME_PATH) -> dict:
@@ -269,14 +291,29 @@ def start_preview(entry: dict, branch: str, runtime_path: Path = RUNTIME_PATH) -
         return existing
     source = Path(entry["path"])
     branch_root, detached = resolve_branch_root(source, branch)
-    prepare_dependencies(source, branch_root)
+    env = os.environ.copy()
+    node_bin = bundled_node_bin() if (branch_root / "package.json").is_file() else None
+    if node_bin:
+        env["PATH"] = f"{node_bin}{os.pathsep}{env.get('PATH', '')}"
+    prepare_dependencies(source, branch_root, env)
     command, adapter = command_for(entry, branch_root)
     port = free_port()
     namespace = f"xds-{safe_id(entry['id'])}-{safe_id(branch)}-{hashlib.sha256(branch.encode()).hexdigest()[:6]}"
-    env = os.environ.copy()
     runtime = adapter.get("runtime", {})
+    if "{python}" in (entry.get("previewCommand") or runtime.get("previewCommand") or runtime.get("startCommand") or ""):
+        suffix = Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python")
+        env["XDS_PYTHON"] = str(branch_root / ".xds" / "venvs" / "default" / suffix)
     env[runtime.get("portEnvironment", "PORT")] = str(port)
     env[runtime.get("dataNamespaceEnvironment", "XDS_DATA_NAMESPACE")] = namespace
+    service_ports = {runtime.get("portEnvironment", "PORT"): port}
+    allocated_ports = {port}
+    for environment_name in runtime.get("additionalPortEnvironments", []):
+        extra_port = free_port()
+        while extra_port in allocated_ports:
+            extra_port = free_port()
+        allocated_ports.add(extra_port)
+        env[environment_name] = str(extra_port)
+        service_ports[environment_name] = extra_port
     for key, value in adapter.get("data", {}).get("environment", {}).items():
         expanded = str(value).replace("{namespace}", namespace)
         data_path = Path(expanded)
@@ -309,7 +346,11 @@ def start_preview(entry: dict, branch: str, runtime_path: Path = RUNTIME_PATH) -
         "branch": branch,
         "worktree": str(branch_root),
         "detachedWorktree": detached,
+        "previewMode": "snapshot" if detached else "live",
+        "updateStrategy": runtime.get("updateStrategy", "manual"),
         "dataNamespace": namespace,
+        "servicePorts": service_ports,
+        "nodeVersion": run(str(node_bin / "node"), "--version") if node_bin else "system",
         "isolation": entry.get("isolation", "namespace"),
         "log": str(log_path),
         "startedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z"),

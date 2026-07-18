@@ -30,6 +30,8 @@ class DashboardTests(unittest.TestCase):
                 "startCommand": 'python3 -m http.server "$PORT" --bind 127.0.0.1',
                 "portEnvironment": "PORT",
                 "dataNamespaceEnvironment": "XDS_DATA_NAMESPACE",
+                "additionalPortEnvironments": ["API_PORT"],
+                "updateStrategy": "live-reload",
                 "workingDirectory": ".",
             },
         }
@@ -62,6 +64,8 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(summary["currentBranch"]["name"], "main")
         self.assertEqual({item["name"] for item in summary["branches"]}, {"main", "feature/demo"})
         self.assertFalse(summary["dirty"])
+        self.assertEqual(summary["currentBranch"]["previewMode"], "live")
+        self.assertEqual(next(item for item in summary["branches"] if item["name"] == "feature/demo")["previewMode"], "snapshot")
 
     def test_preview_uses_unique_port_and_namespace_per_branch(self):
         entry = dashboard.register_project(self.root, "演示项目", project_id="demo", registry_path=self.registry)
@@ -70,6 +74,10 @@ class DashboardTests(unittest.TestCase):
 
         self.assertNotEqual(main["port"], feature["port"])
         self.assertNotEqual(main["dataNamespace"], feature["dataNamespace"])
+        self.assertNotEqual(main["servicePorts"]["API_PORT"], feature["servicePorts"]["API_PORT"])
+        self.assertEqual(main["previewMode"], "live")
+        self.assertEqual(feature["previewMode"], "snapshot")
+        self.assertEqual(main["updateStrategy"], "live-reload")
         self.assertEqual(Path(main["worktree"]), self.root.resolve())
         self.assertTrue(feature["detachedWorktree"])
         self.assertTrue(Path(feature["worktree"]).is_dir())
@@ -97,6 +105,29 @@ class DashboardTests(unittest.TestCase):
 
         self.assertTrue((branch_root / "node_modules").is_symlink())
         self.assertEqual((branch_root / "node_modules").resolve(), source_modules.resolve())
+
+    def test_bundled_node_runtime_is_discovered_without_hardcoding_user_path(self):
+        home = self.base / "home"
+        node = home / ".cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+        node.parent.mkdir(parents=True)
+        node.touch()
+
+        self.assertEqual(dashboard.bundled_node_bin(home), node.parent)
+        self.assertIsNone(dashboard.bundled_node_bin(self.base / "missing"))
+
+    def test_python_placeholder_requires_prepared_isolated_runtime(self):
+        entry = dashboard.register_project(self.root, "演示项目", project_id="python-demo", registry_path=self.registry)
+        self.adapter["runtime"]["startCommand"] = "{python} -m http.server $PORT"
+        (self.root / ".xixi-dev-system.json").write_text(json.dumps(self.adapter), encoding="utf-8")
+
+        with self.assertRaisesRegex(RuntimeError, "隔离 Python 尚未准备"):
+            dashboard.command_for(entry, self.root)
+
+        python = self.root / ".xds/venvs/default/bin/python"
+        python.parent.mkdir(parents=True)
+        python.touch()
+        command, _ = dashboard.command_for(entry, self.root)
+        self.assertIn(str(python), command)
 
     def test_dashboard_rejects_non_loopback_bind_and_host_headers(self):
         self.assertTrue(dashboard.is_loopback_host_header("127.0.0.1:8080"))
